@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Zenith OX — Choose Your AI</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+
+  <div class="app-shell">
+
+    <div class="greeting-bar">
+      {{ greeting }} 👋
+    </div>
+
+    <header class="app-header">
+      <div class="brand">
+        <span class="logo-dot"></span>
+        <h1>ZENITH <span class="accent">OX</span></h1>
+      </div>
+      <div class="user-pill">
+        <span>👤 {{ username }}</span>
+        <a href="/logout" class="btn-header">⎋ Logout</a>
+      </div>
+    </header>
+
+    <main class="menu-main">
+      <h2 class="menu-title">Choose Your AI Assistant</h2>
+      <p class="menu-subtitle">Each mode is tuned for a specific task</p>
+
+      <div class="mode-grid">
+        {% for key, mode in modes.items() %}
+        <a href="/select-mode/{{ key }}" class="mode-card mode-{{ key }}">
+          <span class="mode-emoji">{{ mode.emoji }}</span>
+          <h3 class="mode-name">{{ mode.name }}</h3>
+          <p class="mode-desc">{{ mode.tagline }}</p>
+        </a>
+        {% endfor %}
+      </div>
+    </main>
+
+    <footer class="app-footer">
+      Zenith OX · 6 AI Modes · Secure auth · Vector memory
+    </footer>
+  </div>
+
+</body>
+</html>

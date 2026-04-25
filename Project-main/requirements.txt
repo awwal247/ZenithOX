@@ -1,0 +1,9 @@
+flask
+python-dotenv
+groq
+requests
+scikit-learn
+numpy
+authlib
+Werkzeug
+python-pptx
