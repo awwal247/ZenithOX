@@ -372,7 +372,16 @@ def tavily_search(query, max_results=3):
 # ==========================================================
 # 7. GEMINI CHAT (mode-aware)
 # ==========================================================
-def ask_gemini(user_input, vector_memory, web_context, mode):
+def ask_gemini(user_input, vector_memory, web_context, mode, recent_history=None):
+    # Build messages array with conversation history for context
+    messages = [{"role": "system", "content": mode["system_prompt"]}]
+
+    # Include recent conversation history so the model remembers context
+    if recent_history:
+        for msg in recent_history[-10:]:  # Last 5 exchanges (10 messages)
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Build current user prompt with memory/web context
     prompt = f"User Question: {user_input}\n\n"
     if vector_memory:
         prompt += f"Relevant Past Memory:\n{vector_memory}\n\n"
@@ -381,13 +390,12 @@ def ask_gemini(user_input, vector_memory, web_context, mode):
     if not mode.get("special_handler"):
         prompt += "Instruction:\nProvide a clear, accurate, and helpful answer."
 
+    messages.append({"role": "user", "content": prompt})
+
     try:
         resp = gemini_client.chat.completions.create(
             model=mode["model"],
-            messages=[
-                {"role": "system", "content": mode["system_prompt"]},
-                {"role": "user",   "content": prompt},
-            ],
+            messages=messages,
             temperature=mode["temperature"],
             max_tokens=mode["max_tokens"],
         )
@@ -674,9 +682,10 @@ def chat():
 
     memory_key = f"{user_id}:{mode_key}"
 
+    recent_history = get_user_memory(memory_key)  # Get recent conversation
     vector_mem = retrieve_relevant_memory(memory_key, message)
     web_ctx    = tavily_search(message) if mode.get("uses_web_search") else ""
-    answer     = ask_gemini(message, vector_mem, web_ctx, mode)
+    answer     = ask_gemini(message, vector_mem, web_ctx, mode, recent_history=recent_history)
 
     # Handle PPTX special mode
     if mode.get("special_handler") == "pptx":
