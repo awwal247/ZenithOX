@@ -15,6 +15,8 @@ import json
 import secrets
 import re
 import time
+import zipfile
+import io
 from datetime import datetime
 
 import requests
@@ -203,6 +205,153 @@ AI_MODES = {
         "special_handler": "pptx",
     },
 }
+
+
+
+# Language to file extension mapping
+LANG_EXTENSIONS = {
+    "python": ".py", "py": ".py",
+    "javascript": ".js", "js": ".js",
+    "typescript": ".ts", "ts": ".ts",
+    "html": ".html", "css": ".css",
+    "java": ".java", "c": ".c",
+    "cpp": ".cpp", "c++": ".cpp", "csharp": ".cs",
+    "go": ".go", "rust": ".rs", "ruby": ".rb",
+    "php": ".php", "sql": ".sql", "swift": ".swift",
+    "kotlin": ".kt", "dart": ".dart", "r": ".r",
+    "bash": ".sh", "sh": ".sh", "shell": ".sh",
+    "json": ".json", "yaml": ".yml", "yml": ".yml",
+    "xml": ".xml", "markdown": ".md", "md": ".md",
+    "txt": ".txt", "text": ".txt", "": ".txt",
+}
+
+CODE_BLOCK_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
+
+# Allowed code file extensions for reading uploads
+CODE_EXTENSIONS = {
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".java",
+    ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".rb", ".php", ".sql",
+    ".swift", ".kt", ".dart", ".r", ".sh", ".json", ".yaml", ".yml",
+    ".xml", ".md", ".txt", ".toml", ".cfg", ".ini", ".env", ".gitignore",
+    ".dockerfile", ".makefile",
+}
+
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
+
+
+def extract_code_blocks(text):
+    """Extract all fenced code blocks from markdown text."""
+    matches = CODE_BLOCK_RE.findall(text)
+    blocks = []
+    for lang, content in matches:
+        blocks.append({"language": (lang or "txt").lower(), "code": content.strip()})
+    return blocks
+
+
+def save_code_as_zip(code_blocks):
+    """Save code blocks as files inside a zip archive. Returns download info."""
+    if not code_blocks:
+        return None
+    timestamp = int(time.time())
+    zip_filename = f"zenith_code_{timestamp}.zip"
+    zip_filepath = f"/tmp/{zip_filename}"
+
+    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zf:
+        for i, block in enumerate(code_blocks):
+            lang = block["language"]
+            ext = LANG_EXTENSIONS.get(lang, ".txt")
+            if len(code_blocks) == 1:
+                fname = f"code{ext}"
+            else:
+                fname = f"code_{i + 1}{ext}"
+            zf.writestr(fname, block["code"])
+
+    return {
+        "filename": zip_filename,
+        "url": f"/download-zip/{zip_filename}",
+        "files": [f"code_{i+1}{LANG_EXTENSIONS.get(b['language'], '.txt')}"
+                  if len(code_blocks) > 1 else f"code{LANG_EXTENSIONS.get(b['language'], '.txt')}"
+                  for i, b in enumerate(code_blocks)],
+    }
+
+
+def read_archive(file_storage):
+    """Read code files from an uploaded zip or rar archive. Returns dict of filename->content."""
+    filename = file_storage.filename.lower()
+    file_bytes = file_storage.read()
+
+    if len(file_bytes) > MAX_UPLOAD_SIZE:
+        return None, "File too large (max 10 MB)"
+
+    files = {}
+
+    if filename.endswith(".zip"):
+        try:
+            with zipfile.ZipFile(io.BytesIO(file_bytes)) as zf:
+                for name in zf.namelist():
+                    # Skip directories and hidden files
+                    if name.endswith("/") or "/__" in name or "/." in name:
+                        continue
+                    ext = os.path.splitext(name)[1].lower()
+                    basename = os.path.basename(name)
+                    # Skip non-code files and large files
+                    if ext not in CODE_EXTENSIONS and basename.lower() not in {
+                        "dockerfile", "makefile", ".gitignore", ".env.example"
+                    }:
+                        continue
+                    try:
+                        content = zf.read(name).decode("utf-8", errors="replace")
+                        if len(content) > 50000:  # Skip files > 50KB
+                            continue
+                        files[name] = content
+                    except Exception:
+                        continue
+        except zipfile.BadZipFile:
+            return None, "Invalid zip file"
+
+    elif filename.endswith(".rar"):
+        try:
+            import rarfile
+            with rarfile.RarFile(io.BytesIO(file_bytes)) as rf:
+                for name in rf.namelist():
+                    if name.endswith("/") or "/__" in name or "/." in name:
+                        continue
+                    ext = os.path.splitext(name)[1].lower()
+                    basename = os.path.basename(name)
+                    if ext not in CODE_EXTENSIONS and basename.lower() not in {
+                        "dockerfile", "makefile", ".gitignore", ".env.example"
+                    }:
+                        continue
+                    try:
+                        content = rf.read(name).decode("utf-8", errors="replace")
+                        if len(content) > 50000:
+                            continue
+                        files[name] = content
+                    except Exception:
+                        continue
+        except ImportError:
+            return None, "RAR support not available on this server. Please upload a .zip file instead."
+        except Exception:
+            return None, "Invalid or corrupted RAR file"
+    else:
+        return None, "Unsupported format. Please upload .zip or .rar"
+
+    if not files:
+        return None, "No code files found in archive"
+
+    return files, None
+
+
+def format_files_for_prompt(files_dict):
+    """Format extracted files into a string for the AI prompt."""
+    parts = []
+    for filepath, content in sorted(files_dict.items()):
+        parts.append(f"--- {filepath} ---\n{content}")
+    combined = "\n\n".join(parts)
+    # Truncate if too long (keep under ~30K chars for the prompt)
+    if len(combined) > 30000:
+        combined = combined[:30000] + "\n\n[... truncated due to length ...]"
+    return combined
 
 
 # ==========================================================
@@ -708,6 +857,21 @@ def chat():
         except Exception as e:
             print(f"[PPTX error] {e}")
 
+    # For developer mode: extract code blocks and offer zip download
+    if mode_key == "developer":
+        code_blocks = extract_code_blocks(answer)
+        if code_blocks:
+            zip_info = save_code_as_zip(code_blocks)
+            if zip_info:
+                update_user_memory(memory_key, "user", message)
+                update_user_memory(memory_key, "assistant", answer)
+                return jsonify({
+                    "ok": True,
+                    "response": answer,
+                    "download_url": zip_info["url"],
+                    "download_name": zip_info["filename"],
+                })
+
     update_user_memory(memory_key, "user", message)
     update_user_memory(memory_key, "assistant", answer)
     return jsonify({"ok": True, "response": answer})
@@ -736,6 +900,81 @@ def download_file(filename):
     if "user_id" not in session:
         return redirect(url_for("login_page"))
     if not filename.endswith(".pptx"):
+        return "Invalid file type", 400
+    filepath = os.path.join("/tmp", filename)
+    if not os.path.exists(filepath):
+        return "File not found or expired", 404
+    return send_from_directory("/tmp", filename, as_attachment=True)
+
+
+
+# ---------- UPLOAD CODE (ZIP/RAR) ----------
+@app.route("/upload-code", methods=["POST"])
+def upload_code():
+    """Handle zip/rar upload: read files, send to AI for modification, return new zip."""
+    if "user_id" not in session:
+        return jsonify({"ok": False, "error": "Not authenticated."}), 401
+
+    if "file" not in request.files:
+        return jsonify({"ok": False, "error": "No file uploaded."}), 400
+
+    uploaded = request.files["file"]
+    if not uploaded.filename:
+        return jsonify({"ok": False, "error": "Empty filename."}), 400
+
+    instruction = request.form.get("message", "").strip()
+    if not instruction:
+        instruction = "Analyze this code and suggest improvements."
+
+    # Read the archive
+    files_dict, error = read_archive(uploaded)
+    if error:
+        return jsonify({"ok": False, "error": error}), 400
+
+    # Format files for the AI prompt
+    files_text = format_files_for_prompt(files_dict)
+    file_list = ", ".join(files_dict.keys())
+
+    user_id  = session["user_id"]
+    mode_key = "developer"
+    mode     = AI_MODES["developer"]
+    memory_key = f"{user_id}:{mode_key}"
+
+    # Build a rich prompt with the uploaded code
+    upload_prompt = (
+        f"The user uploaded a code project with these files: {file_list}\n\n"
+        f"Here are the file contents:\n\n{files_text}\n\n"
+        f"User instruction: {instruction}\n\n"
+        "IMPORTANT: When returning modified code, wrap each file in markdown code fences "
+        "with the language name. If modifying multiple files, include ALL of them."
+    )
+
+    recent_history = get_user_memory(memory_key)
+    vector_mem = retrieve_relevant_memory(memory_key, instruction)
+    answer = ask_gemini(upload_prompt, vector_mem, "", mode, recent_history=recent_history)
+
+    # Extract code blocks from the response and create a zip
+    code_blocks = extract_code_blocks(answer)
+    response_data = {"ok": True, "response": answer}
+
+    if code_blocks:
+        zip_info = save_code_as_zip(code_blocks)
+        if zip_info:
+            response_data["download_url"] = zip_info["url"]
+            response_data["download_name"] = zip_info["filename"]
+
+    update_user_memory(memory_key, "user", f"[Uploaded: {file_list}] {instruction}")
+    update_user_memory(memory_key, "assistant", answer)
+
+    return jsonify(response_data)
+
+
+# ---------- DOWNLOAD ZIP ----------
+@app.route("/download-zip/<filename>")
+def download_zip(filename):
+    if "user_id" not in session:
+        return redirect(url_for("login_page"))
+    if not filename.endswith(".zip"):
         return "Invalid file type", 400
     filepath = os.path.join("/tmp", filename)
     if not os.path.exists(filepath):
