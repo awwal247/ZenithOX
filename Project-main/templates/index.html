@@ -5,15 +5,13 @@
   <title>Zenith OX — {{ mode.name }}</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="/static/style.css" />
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css" />
 </head>
 <body>
-
   <div class="app-shell">
-
     <div class="greeting-bar">
       {{ greeting }} 👋 · <strong>{{ mode.emoji }} {{ mode.name }}</strong>
     </div>
-
     <header class="app-header">
       <div class="brand">
         <span class="logo-dot"></span>
@@ -26,27 +24,20 @@
         <button id="logoutBtn" title="Logout">⎋ Logout</button>
       </div>
     </header>
-
     <main class="chat-main">
-      <div id="chat-box" class="chat-box">
-        <!-- Chat messages appear here -->
-      </div>
-
+      <div id="chat-box" class="chat-box"></div>
       <form id="chatForm" class="chat-input">
         <input type="text" id="user-input" placeholder="Type your question..."
                autocomplete="off" required />
         <button type="submit" id="sendBtn">Send ➤</button>
       </form>
     </main>
-
     <footer class="app-footer">
       Zenith OX · {{ mode.name }} · Secure auth · Vector memory
     </footer>
   </div>
-
-  <script>
-    window.ZENITH_MODE = "{{ mode_key }}";
-  </script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script>window.ZENITH_MODE = "{{ mode_key }}";</script>
   <script src="/static/script.js"></script>
 </body>
 </html>
