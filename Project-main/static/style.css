@@ -1,5 +1,5 @@
 /* ==========================================================
-   ZENITH OX — Unified Stylesheet
+   ZENITH OX â€” Unified Stylesheet
    ========================================================== */
 :root {
   --bg-0:   #07090d;
@@ -758,4 +758,74 @@ html, body {
   .mode-desc {
     font-size: 0.75rem;
   }
+}
+
+
+/* ==========================================================
+   CODE BLOCK STYLES (syntax highlighting)
+   ========================================================== */
+
+.code-block-wrapper {
+  margin: 0.75rem 0;
+  border-radius: 8px;
+  overflow: hidden;
+  border: 1px solid #30363d;
+  background: #0d1117;
+}
+
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 14px;
+  background: #161b22;
+  border-bottom: 1px solid #30363d;
+  font-size: 0.75rem;
+}
+
+.code-lang {
+  color: #8b949e;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  text-transform: lowercase;
+}
+
+.copy-btn {
+  background: transparent;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 0.72rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.copy-btn:hover {
+  border-color: #58a6ff;
+  color: #58a6ff;
+}
+
+.code-block-wrapper pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  background: #0d1117 !important;
+}
+
+.code-block-wrapper code {
+  font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace !important;
+  font-size: 0.85rem;
+  line-height: 1.5;
+  background: transparent !important;
+  padding: 0 !important;
+}
+
+.hljs {
+  background: #0d1117 !important;
+}
+
+.message.bot {
+  white-space: pre-wrap;
+}
+.message.bot .code-block-wrapper {
+  white-space: normal;
 }
