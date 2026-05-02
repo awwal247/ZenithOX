@@ -143,7 +143,7 @@ AI_MODES = {
         "name": "AI Researcher",
         "emoji": "\U0001f50d",
         "tagline": "Web search + memory research assistant",
-        "model": "llama3-8b-8192",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are Zenith OX, a secure, intelligent research assistant. "
             "You answer clearly, accurately, and concisely. "
