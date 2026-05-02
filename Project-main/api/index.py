@@ -94,7 +94,7 @@ AI_MODES = {
         "name": "AI Developer",
         "emoji": "\U0001f4bb",
         "tagline": "Code generation, debugging, and explanation",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert software developer and programming assistant. "
             "Write clean, well-documented code in any language requested. "
@@ -111,7 +111,7 @@ AI_MODES = {
         "name": "AI Story Writer",
         "emoji": "\U0001f4d6",
         "tagline": "Creative writing, stories, poems, and scripts",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are a talented creative writer. "
             "Write engaging stories with vivid descriptions and compelling characters. "
@@ -128,7 +128,7 @@ AI_MODES = {
         "name": "AI Solve It",
         "emoji": "\U0001f9ee",
         "tagline": "Math problems and step-by-step solutions",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert mathematician and problem solver. "
             "Solve math problems step-by-step, showing all work clearly. "
@@ -160,7 +160,7 @@ AI_MODES = {
         "name": "AI Email Writer",
         "emoji": "\u2709\ufe0f",
         "tagline": "Generate professional emails ready to copy",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert email writer. "
             "Write clear, professional, and well-structured emails. "
@@ -177,7 +177,7 @@ AI_MODES = {
         "name": "AI Slides Generator",
         "emoji": "\U0001f4ca",
         "tagline": "Generate downloadable PowerPoint presentations",
-        "model": "llama-3.1-70b-versatile",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You generate PowerPoint presentation content. "
             "When the user asks for a presentation, generate ONLY a valid JSON object with no extra text.\n"
