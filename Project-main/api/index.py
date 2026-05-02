@@ -1,10 +1,12 @@
 """
 ==========================================================
-  ZENITH OX - Secure Intelligent Research Assistant
+  ZENITH OX â€” Secure Intelligent Research Assistant
+  Backend: Flask + Gemini 2.5 Flash (free) + TF-IDF Vector Memory
+  Auth:    Email+Password  OR  Google OAuth  (or both)
+  Web:     Tavily API via raw `requests` (no SDK)
   Stage 2: AI Mode Selection (6 modes)
-  + Syntax-highlighted code + downloadable code files
   
-  UPDATED: Groq -> Gemini 2.5 Flash (no paid API key needed)
+  UPDATED: Groq -> Gemini 2.5 Flash via OpenAI-compatible API
 ==========================================================
 """
 
@@ -13,7 +15,6 @@ import json
 import secrets
 import re
 import time
-import zipfile
 from datetime import datetime
 
 import requests
@@ -36,14 +37,17 @@ from sklearn.metrics.pairwise import cosine_similarity
 load_dotenv()
 
 BASE_DIR    = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 USERS_FILE  = os.path.join(BASE_DIR, "users.json")
 MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
+
 WRITABLE_USERS  = "/tmp/users.json"
 WRITABLE_MEMORY = "/tmp/memory.json"
 
 GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 SECRET_KEY          = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
+
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
@@ -61,11 +65,12 @@ app = Flask(
     static_folder=os.path.join(BASE_DIR, "static"),
 )
 app.secret_key = SECRET_KEY
+
 MEMORY_LIMIT = 15
 TOP_K_MEMORY = 3
 
 # ----------------------------------------------------------
-# 2b. GOOGLE OAUTH
+# 2b. GOOGLE OAUTH SETUP
 # ----------------------------------------------------------
 oauth = OAuth(app)
 google = None
@@ -87,7 +92,7 @@ app.jinja_env.globals["google_enabled"] = google_enabled
 
 
 # ==========================================================
-# 3. AI MODES
+# 3. AI MODES CONFIGURATION
 # ==========================================================
 AI_MODES = {
     "developer": {
@@ -101,10 +106,7 @@ AI_MODES = {
             "Debug and fix code issues with clear explanations. "
             "Explain complex programming concepts simply. "
             "Follow best practices and design patterns. "
-            "Always provide working code examples with proper formatting. "
-            "IMPORTANT: Always wrap code in markdown code fences with the language name, "
-            "for example: ```python\\n...code...\\n``` or ```javascript\\n...code...\\n```. "
-            "Never put code outside of fences. Separate explanations from code clearly."
+            "Always provide working code examples with proper formatting."
         ),
         "temperature": 0.3,
         "max_tokens": 2000,
@@ -202,23 +204,6 @@ AI_MODES = {
     },
 }
 
-# Language to file extension mapping
-LANG_EXTENSIONS = {
-    "python": ".py", "py": ".py",
-    "javascript": ".js", "js": ".js",
-    "typescript": ".ts", "ts": ".ts",
-    "html": ".html", "css": ".css",
-    "java": ".java", "c": ".c",
-    "cpp": ".cpp", "c++": ".cpp", "csharp": ".cs",
-    "go": ".go", "rust": ".rs", "ruby": ".rb",
-    "php": ".php", "sql": ".sql", "swift": ".swift",
-    "kotlin": ".kt", "dart": ".dart", "r": ".r",
-    "bash": ".sh", "sh": ".sh", "shell": ".sh",
-    "json": ".json", "yaml": ".yml", "yml": ".yml",
-    "xml": ".xml", "markdown": ".md", "md": ".md",
-    "txt": ".txt", "text": ".txt", "": ".txt",
-}
-
 
 # ==========================================================
 # 4. STORAGE HELPERS
@@ -299,6 +284,9 @@ def display_name_from_email(email: str) -> str:
     return (email or "").split("@")[0] or "friend"
 
 
+# ==========================================================
+# 4c. TIME-BASED GREETING
+# ==========================================================
 def time_based_greeting(name: str) -> str:
     hour = datetime.now().hour
     if 5 <= hour < 12:
@@ -313,12 +301,13 @@ def time_based_greeting(name: str) -> str:
 
 
 # ==========================================================
-# 5. VECTOR MEMORY
+# 5. VECTOR MEMORY (TF-IDF + cosine similarity)
 # ==========================================================
 def retrieve_relevant_memory(memory_key, query, top_k=TOP_K_MEMORY):
     history = get_user_memory(memory_key)
     if not history:
         return ""
+
     pairs = []
     for i, msg in enumerate(history):
         if msg["role"] == "user":
@@ -326,9 +315,12 @@ def retrieve_relevant_memory(memory_key, query, top_k=TOP_K_MEMORY):
             if i + 1 < len(history) and history[i + 1]["role"] == "assistant":
                 reply = history[i + 1]["content"]
             pairs.append((msg["content"], reply))
+
     if not pairs:
         return ""
+
     user_texts = [p[0] for p in pairs]
+
     try:
         vectorizer = TfidfVectorizer(stop_words="english")
         matrix = vectorizer.fit_transform(user_texts + [query])
@@ -337,10 +329,13 @@ def retrieve_relevant_memory(memory_key, query, top_k=TOP_K_MEMORY):
         sims = cosine_similarity(query_vec, past_vecs).flatten()
     except ValueError:
         return ""
+
     ranked = np.argsort(sims)[::-1]
     selected = [idx for idx in ranked if sims[idx] > 0][:top_k]
+
     if not selected:
         return ""
+
     lines = []
     for idx in selected:
         u, a = pairs[idx]
@@ -349,7 +344,7 @@ def retrieve_relevant_memory(memory_key, query, top_k=TOP_K_MEMORY):
 
 
 # ==========================================================
-# 6. WEB SEARCH
+# 6. WEB SEARCH (Tavily)
 # ==========================================================
 def tavily_search(query, max_results=3):
     if not TAVILY_API_KEY:
@@ -357,8 +352,12 @@ def tavily_search(query, max_results=3):
     try:
         r = requests.post(
             "https://api.tavily.com/search",
-            json={"api_key": TAVILY_API_KEY, "query": query,
-                  "search_depth": "basic", "max_results": max_results},
+            json={
+                "api_key": TAVILY_API_KEY,
+                "query": query,
+                "search_depth": "basic",
+                "max_results": max_results,
+            },
             timeout=15,
         )
         r.raise_for_status()
@@ -371,7 +370,7 @@ def tavily_search(query, max_results=3):
 
 
 # ==========================================================
-# 7. GEMINI CHAT (was: GROQ CHAT)
+# 7. GEMINI CHAT (mode-aware)
 # ==========================================================
 def ask_gemini(user_input, vector_memory, web_context, mode):
     prompt = f"User Question: {user_input}\n\n"
@@ -381,6 +380,7 @@ def ask_gemini(user_input, vector_memory, web_context, mode):
         prompt += f"Web Context:\n{web_context}\n\n"
     if not mode.get("special_handler"):
         prompt += "Instruction:\nProvide a clear, accurate, and helpful answer."
+
     try:
         resp = gemini_client.chat.completions.create(
             model=mode["model"],
@@ -399,148 +399,105 @@ def ask_gemini(user_input, vector_memory, web_context, mode):
 # ==========================================================
 # 8. PPTX GENERATOR
 # ==========================================================
-def parse_slides_json(ai_response):
-    text = ai_response.strip()
-    if text.startswith("```"):
-        text = text.split("\n", 1)[1]
-        text = text.rsplit("```", 1)[0].strip()
+def generate_pptx(ai_response, user_id):
+    """Parse AI JSON response and create a .pptx file."""
     try:
-        return json.loads(text)
+        text = ai_response.strip()
+        if text.startswith("```"):
+            text = text.split("\n", 1)[1]
+            text = text.rsplit("```", 1)[0].strip()
+        data = json.loads(text)
     except (json.JSONDecodeError, IndexError):
         return None
 
+    from pptx import Presentation
+    from pptx.util import Inches, Pt
 
-def format_slides_as_text(data):
+    prs = Presentation()
     title = data.get("title", "Presentation")
     slides = data.get("slides", [])
+
     if not slides:
         return None
-    lines = [f"\U0001f4ca {title}\n"]
-    for i, s in enumerate(slides, 1):
-        lines.append(f"--- Slide {i}: {s.get('title', 'Untitled')} ---")
-        for bullet in s.get("bullets", []):
-            lines.append(f"  \u2022 {bullet}")
-        lines.append("")
-    return "\n".join(lines)
 
+    # Title slide
+    title_layout = prs.slide_layouts[0]
+    first = prs.slides.add_slide(title_layout)
+    first.shapes.title.text = title
+    if len(first.placeholders) > 1:
+        first.placeholders[1].text = "Generated by Zenith OX"
 
-def generate_pptx(data):
-    try:
-        from pptx import Presentation
-        from pptx.util import Inches, Pt
-    except ImportError as e:
-        print(f"[PPTX import error] {e}")
-        return None
-    try:
-        title = data.get("title", "Presentation")
-        slides = data.get("slides", [])
-        if not slides:
-            return None
-        prs = Presentation()
-        title_layout = prs.slide_layouts[0]
-        first = prs.slides.add_slide(title_layout)
-        first.shapes.title.text = title
-        if len(first.placeholders) > 1:
-            first.placeholders[1].text = "Generated by Zenith OX"
-        content_layout = prs.slide_layouts[1]
-        slide_titles = []
-        for s in slides:
-            slide = prs.slides.add_slide(content_layout)
-            slide.shapes.title.text = s.get("title", "Untitled")
-            slide_titles.append(s.get("title", "Untitled"))
-            body = slide.placeholders[1]
-            tf = body.text_frame
-            tf.clear()
-            for j, bullet in enumerate(s.get("bullets", [])):
-                if j == 0:
-                    tf.text = bullet
-                else:
-                    p = tf.add_paragraph()
-                    p.text = bullet
-        filename = f"zenith_ox_{int(time.time())}.pptx"
-        filepath = f"/tmp/{filename}"
-        prs.save(filepath)
-        return {"filename": filename, "url": f"/download/{filename}", "slides": slide_titles}
-    except Exception as e:
-        print(f"[PPTX creation error] {e}")
-        return None
+    # Content slides
+    content_layout = prs.slide_layouts[1]
+    slide_titles = []
+    for s in slides:
+        slide = prs.slides.add_slide(content_layout)
+        slide.shapes.title.text = s.get("title", "Untitled")
+        slide_titles.append(s.get("title", "Untitled"))
 
+        body = slide.placeholders[1]
+        tf = body.text_frame
+        tf.clear()
+        for j, bullet in enumerate(s.get("bullets", [])):
+            if j == 0:
+                tf.text = bullet
+            else:
+                p = tf.add_paragraph()
+                p.text = bullet
 
-# ==========================================================
-# 9. CODE FILE GENERATOR (Developer mode)
-# ==========================================================
-CODE_BLOCK_RE = re.compile(r"```(\w*)\n(.*?)```", re.DOTALL)
-
-
-def extract_code_blocks(text):
-    """Extract all fenced code blocks from markdown text."""
-    matches = CODE_BLOCK_RE.findall(text)
-    blocks = []
-    for lang, code in matches:
-        blocks.append({"language": (lang or "txt").lower(), "code": code.strip()})
-    return blocks
-
-
-def save_code_files(code_blocks):
-    """Save code blocks as individual files + a zip archive. Returns download info."""
-    if not code_blocks:
-        return None
-    timestamp = int(time.time())
-    files_created = []
-
-    for i, block in enumerate(code_blocks):
-        lang = block["language"]
-        ext = LANG_EXTENSIONS.get(lang, ".txt")
-        if len(code_blocks) == 1:
-            filename = f"code{ext}"
-        else:
-            filename = f"code_{i + 1}{ext}"
-        filepath = f"/tmp/{filename}"
-        with open(filepath, "w", encoding="utf-8") as f:
-            f.write(block["code"])
-        files_created.append({"filename": filename, "filepath": filepath})
-
-    # Create zip
-    zip_filename = f"zenith_code_{timestamp}.zip"
-    zip_filepath = f"/tmp/{zip_filename}"
-    with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zf:
-        for fi in files_created:
-            zf.write(fi["filepath"], fi["filename"])
+    filename = f"zenith_ox_{int(time.time())}.pptx"
+    filepath = f"/tmp/{filename}"
+    prs.save(filepath)
 
     return {
-        "files": [fi["filename"] for fi in files_created],
-        "zip_filename": zip_filename,
-        "zip_url": f"/download-zip/{zip_filename}",
+        "filename": filename,
+        "path": filepath,
+        "url": f"/download/{filename}",
+        "slides": slide_titles,
     }
 
 
 # ==========================================================
-# 10. ROUTES
+# 9. ROUTES
 # ==========================================================
 
+# ---------- INDEX ----------
 @app.route("/")
 def index():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
     if "ai_mode" not in session:
         return redirect(url_for("menu"))
+
     mode_key = session["ai_mode"]
     mode = AI_MODES.get(mode_key, AI_MODES["researcher"])
     username = session.get("display_name") or session["user_id"]
     greeting = time_based_greeting(username)
-    return render_template("index.html", username=username, greeting=greeting,
-                           mode=mode, mode_key=mode_key)
+    return render_template(
+        "index.html",
+        username=username,
+        greeting=greeting,
+        mode=mode,
+        mode_key=mode_key,
+    )
 
 
+# ---------- MENU ----------
 @app.route("/menu")
 def menu():
     if "user_id" not in session:
         return redirect(url_for("login_page"))
     username = session.get("display_name") or session["user_id"]
     greeting = time_based_greeting(username)
-    return render_template("menu.html", username=username, greeting=greeting, modes=AI_MODES)
+    return render_template(
+        "menu.html",
+        username=username,
+        greeting=greeting,
+        modes=AI_MODES,
+    )
 
 
+# ---------- SELECT MODE ----------
 @app.route("/select-mode/<mode_key>")
 def select_mode(mode_key):
     if "user_id" not in session:
@@ -552,33 +509,235 @@ def select_mode(mode_key):
     return redirect(url_for("index"))
 
 
+# ---------- REGISTER ----------
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "GET":
         return render_template("register.html")
+
     email    = (request.form.get("email") or "").strip().lower()
     password = request.form.get("password") or ""
     confirm  = request.form.get("confirm") or ""
     name     = (request.form.get("name") or "").strip()
+
     if not valid_email(email):
         flash("Please enter a valid email address.", "error")
         return redirect(url_for("register"))
+
     if len(password) < 6:
         flash("Password must be at least 6 characters.", "error")
         return redirect(url_for("register"))
+
     if password != confirm:
         flash("Passwords do not match.", "error")
         return redirect(url_for("register"))
-    # NOTE: Your original code was cut off here.
-    # Add the rest of your register route below.
-    # ...
+
+    users = load_users()
+    existing_key, _ = find_user_by_email(email)
+    if existing_key:
+        flash("An account with that email already exists. Please log in.", "error")
+        return redirect(url_for("login_page"))
+
+    user_key = email
+    users[user_key] = {
+        "email": email,
+        "name": name or display_name_from_email(email),
+        "password_hash": generate_password_hash(password),
+        "google_id": None,
+        "created_at": datetime.utcnow().isoformat() + "Z",
+    }
+    save_users(users)
+
+    session["user_id"]      = user_key
+    session["display_name"] = users[user_key]["name"]
+    flash("Account created. Welcome!", "success")
+    return redirect(url_for("menu"))
+
+
+# ---------- LOGIN ----------
+@app.route("/login", methods=["GET", "POST"])
+def login_page():
+    if request.method == "GET":
+        return render_template("login.html")
+
+    email    = (request.form.get("email") or "").strip().lower()
+    password = request.form.get("password") or ""
+
+    if not valid_email(email) or not password:
+        flash("Please enter your email and password.", "error")
+        return redirect(url_for("login_page"))
+
+    key, user = find_user_by_email(email)
+    if not user or not user.get("password_hash"):
+        flash("No account found with that email, or it was created via Google. "
+              "Try \'Continue with Google\' instead.", "error")
+        return redirect(url_for("login_page"))
+
+    if not check_password_hash(user["password_hash"], password):
+        flash("Incorrect password.", "error")
+        return redirect(url_for("login_page"))
+
+    session["user_id"]      = key
+    session["display_name"] = user.get("name") or display_name_from_email(email)
+    return redirect(url_for("menu"))
+
+
+# ---------- GOOGLE OAUTH ----------
+@app.route("/login/google")
+def login_google():
+    if not google:
+        flash("Google login is not configured on this server.", "error")
+        return redirect(url_for("login_page"))
+    redirect_uri = url_for("auth_google_callback", _external=True)
+    return google.authorize_redirect(redirect_uri)
+
+
+@app.route("/auth/google/callback")
+def auth_google_callback():
+    if not google:
+        flash("Google login is not configured on this server.", "error")
+        return redirect(url_for("login_page"))
+
+    try:
+        token = google.authorize_access_token()
+    except Exception as e:
+        flash(f"Google sign-in failed: {e}", "error")
+        return redirect(url_for("login_page"))
+
+    userinfo = token.get("userinfo") or {}
+    if not userinfo:
+        try:
+            userinfo = google.parse_id_token(token) or {}
+        except Exception:
+            userinfo = {}
+
+    google_id = userinfo.get("sub")
+    email     = (userinfo.get("email") or "").strip().lower()
+    name      = userinfo.get("name") or display_name_from_email(email)
+
+    if not google_id or not email:
+        flash("Google did not return the required profile info.", "error")
+        return redirect(url_for("login_page"))
+
+    users = load_users()
+    key, user = find_user_by_google_id(google_id)
+
+    if not user:
+        key, user = find_user_by_email(email)
+        if user:
+            user["google_id"] = google_id
+            user.setdefault("name", name)
+            users[key] = user
+            save_users(users)
+
+    if not user:
+        key = email
+        users[key] = {
+            "email": email,
+            "name": name,
+            "password_hash": None,
+            "google_id": google_id,
+            "created_at": datetime.utcnow().isoformat() + "Z",
+        }
+        save_users(users)
+        user = users[key]
+
+    session["user_id"]      = key
+    session["display_name"] = user.get("name") or display_name_from_email(email)
+    return redirect(url_for("menu"))
+
+
+# ---------- LOGOUT ----------
+@app.route("/logout", methods=["POST", "GET"])
+def logout():
+    session.pop("user_id", None)
+    session.pop("display_name", None)
+    session.pop("ai_mode", None)
+    return redirect(url_for("login_page"))
+
+
+# ---------- CHAT ----------
+@app.route("/chat", methods=["POST"])
+def chat():
+    if "user_id" not in session:
+        return jsonify({"ok": False, "error": "Not authenticated."}), 401
+
+    user_id  = session["user_id"]
+    mode_key = session.get("ai_mode", "researcher")
+    mode     = AI_MODES.get(mode_key, AI_MODES["researcher"])
+
+    data    = request.get_json(silent=True) or {}
+    message = (data.get("message") or "").strip()
+
+    if not message:
+        return jsonify({"ok": False, "error": "Empty message."}), 400
+
+    memory_key = f"{user_id}:{mode_key}"
+
+    vector_mem = retrieve_relevant_memory(memory_key, message)
+    web_ctx    = tavily_search(message) if mode.get("uses_web_search") else ""
+    answer     = ask_gemini(message, vector_mem, web_ctx, mode)
+
+    # Handle PPTX special mode
+    if mode.get("special_handler") == "pptx":
+        try:
+            result = generate_pptx(answer, user_id)
+            if result:
+                summary = f"Your presentation is ready!\n\nSlides:\n"
+                for i, t in enumerate(result["slides"], 1):
+                    summary += f"  {i}. {t}\n"
+                summary += "\nClick the download button below to save your file."
+
+                update_user_memory(memory_key, "user", message)
+                update_user_memory(memory_key, "assistant", summary)
+                return jsonify({
+                    "ok": True,
+                    "response": summary,
+                    "download_url": result["url"],
+                    "download_name": result["filename"],
+                })
+        except Exception as e:
+            print(f"[PPTX error] {e}")
+
+    update_user_memory(memory_key, "user", message)
+    update_user_memory(memory_key, "assistant", answer)
+    return jsonify({"ok": True, "response": answer})
+
+
+# ---------- CLEAR MEMORY ----------
+@app.route("/clear", methods=["POST"])
+def clear():
+    if "user_id" not in session:
+        return jsonify({"ok": False, "error": "Not authenticated."}), 401
+
+    user_id    = session["user_id"]
+    mode_key   = session.get("ai_mode", "researcher")
+    memory_key = f"{user_id}:{mode_key}"
+
+    mem = load_memory()
+    if memory_key in mem:
+        mem[memory_key] = []
+        save_memory(mem)
+    return jsonify({"ok": True, "message": "Memory cleared for this mode."})
+
+
+# ---------- DOWNLOAD (PPTX) ----------
+@app.route("/download/<filename>")
+def download_file(filename):
+    if "user_id" not in session:
+        return redirect(url_for("login_page"))
+    if not filename.endswith(".pptx"):
+        return "Invalid file type", 400
+    filepath = os.path.join("/tmp", filename)
+    if not os.path.exists(filepath):
+        return "File not found or expired", 404
+    return send_from_directory("/tmp", filename, as_attachment=True)
 
 
 # ==========================================================
-# IMPORTANT: Your original code was truncated at the register
-# route. Paste the rest of your routes below this point.
-# All changes above are complete - no other modifications needed.
-#
-# Remember: anywhere you previously called ask_groq(),
-# change it to ask_gemini() with the same arguments.
+# 10. ENTRY POINT
 # ==========================================================
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000, debug=True)
+
+application = app
