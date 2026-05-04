@@ -123,7 +123,7 @@ AI_MODES = {
             "Be accurate about what the code would produce."
         ),
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": 8000,
         "uses_web_search": False,
     },
     "story_writer": {
@@ -140,7 +140,7 @@ AI_MODES = {
             "Be creative, original, and evocative in your writing."
         ),
         "temperature": 0.85,
-        "max_tokens": 2000,
+        "max_tokens": 4000,
         "uses_web_search": False,
     },
     "solve_it": {
@@ -157,7 +157,7 @@ AI_MODES = {
             "Always verify your answers by checking the work."
         ),
         "temperature": 0.2,
-        "max_tokens": 2000,
+        "max_tokens": 4000,
         "uses_web_search": False,
     },
     "researcher": {
@@ -172,7 +172,7 @@ AI_MODES = {
             "but never fabricate facts. If unsure, say so."
         ),
         "temperature": 0.6,
-        "max_tokens": 800,
+        "max_tokens": 2000,
         "uses_web_search": True,
     },
     "email_writer": {
@@ -189,7 +189,7 @@ AI_MODES = {
             "Format the output as a ready-to-copy email with Subject: and Body: clearly marked."
         ),
         "temperature": 0.5,
-        "max_tokens": 1500,
+        "max_tokens": 2000,
         "uses_web_search": False,
     },
     "pptx_generator": {
