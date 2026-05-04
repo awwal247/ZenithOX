@@ -1,5 +1,5 @@
 /* ==========================================================
-   ZENITH OX â€” Chat UI (syntax highlighting + code downloads)
+   ZENITH OX â€” Chat UI (ChatGPT-style)
    ========================================================== */
 (() => {
   const chatBox   = document.getElementById("chat-box");
@@ -8,6 +8,37 @@
   const sendBtn   = document.getElementById("sendBtn");
   const clearBtn  = document.getElementById("clearBtn");
   const logoutBtn = document.getElementById("logoutBtn");
+  const fileInput = document.getElementById("fileInput");
+  const filePreview = document.getElementById("file-preview");
+
+  /* ---------- auto-resize textarea ---------- */
+  input.addEventListener("input", () => {
+    input.style.height = "auto";
+    input.style.height = Math.min(input.scrollHeight, 150) + "px";
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      form.dispatchEvent(new Event("submit"));
+    }
+  });
+
+  /* ---------- file upload preview ---------- */
+  let pendingFile = null;
+  fileInput.addEventListener("change", () => {
+    const file = fileInput.files[0];
+    if (!file) return;
+    pendingFile = file;
+    filePreview.classList.remove("hidden");
+    filePreview.innerHTML = '<span>\u{1F4CE} ' + file.name + '</span>' +
+      '<button type="button" id="removeFile">\u2715</button>';
+    document.getElementById("removeFile").addEventListener("click", () => {
+      pendingFile = null;
+      fileInput.value = "";
+      filePreview.classList.add("hidden");
+    });
+  });
 
   /* ---------- helpers ---------- */
   function addMessage(text, cls) {
@@ -28,18 +59,6 @@
     return div;
   }
 
-  function typeInto(el, text, speed) {
-    el.textContent = "";
-    return new Promise(resolve => {
-      let i = 0;
-      const iv = setInterval(() => {
-        el.textContent += text.charAt(i++);
-        chatBox.scrollTop = chatBox.scrollHeight;
-        if (i >= text.length) { clearInterval(iv); resolve(); }
-      }, speed || 14);
-    });
-  }
-
   /* ---------- code block detection ---------- */
   const CODE_RE = /```(\w*)\n([\s\S]*?)```/g;
 
@@ -48,11 +67,6 @@
     return CODE_RE.test(text);
   }
 
-  /**
-   * Render a response with syntax-highlighted code blocks.
-   * Text outside code fences is rendered as plain text spans.
-   * Code blocks get <pre><code> with highlight.js coloring.
-   */
   function renderFormatted(container, text) {
     container.innerHTML = "";
     CODE_RE.lastIndex = 0;
@@ -60,28 +74,20 @@
     let match;
 
     while ((match = CODE_RE.exec(text)) !== null) {
-      // Text before this code block
       if (match.index > lastIdx) {
-        const textPart = text.slice(lastIdx, match.index);
         const span = document.createElement("span");
-        span.textContent = textPart;
+        span.textContent = text.slice(lastIdx, match.index);
         container.appendChild(span);
       }
-
-      // Code block
       const lang = match[1] || "plaintext";
       const code = match[2];
-
       const wrapper = document.createElement("div");
       wrapper.className = "code-block-wrapper";
-
-      // Header bar with language label + copy button
       const header = document.createElement("div");
       header.className = "code-header";
       header.innerHTML = '<span class="code-lang">' + lang + '</span>' +
         '<button class="copy-btn" title="Copy code">Copy</button>';
       wrapper.appendChild(header);
-
       const pre = document.createElement("pre");
       const codeEl = document.createElement("code");
       codeEl.className = "language-" + lang;
@@ -89,28 +95,20 @@
       pre.appendChild(codeEl);
       wrapper.appendChild(pre);
       container.appendChild(wrapper);
-
-      // Apply highlight.js
       if (window.hljs) { hljs.highlightElement(codeEl); }
-
-      // Copy button handler
       header.querySelector(".copy-btn").addEventListener("click", function() {
         navigator.clipboard.writeText(code).then(() => {
           this.textContent = "Copied!";
           setTimeout(() => { this.textContent = "Copy"; }, 2000);
         });
       });
-
       lastIdx = match.index + match[0].length;
     }
-
-    // Remaining text after last code block
     if (lastIdx < text.length) {
       const span = document.createElement("span");
       span.textContent = text.slice(lastIdx);
       container.appendChild(span);
     }
-
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
@@ -124,43 +122,81 @@
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
-  /* ---------- send ---------- */
+  function renderBotMessage(data) {
+    const botEl = document.createElement("div");
+    botEl.className = "message bot";
+    chatBox.appendChild(botEl);
+    if (hasCodeBlocks(data.response)) {
+      renderFormatted(botEl, data.response);
+    } else {
+      botEl.textContent = data.response;
+    }
+    if (data.download_url) {
+      addDownloadButton(botEl, data.download_url, data.download_name);
+    }
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
+  /* ---------- load chat history on page load ---------- */
+  async function loadHistory() {
+    try {
+      const r = await fetch("/history");
+      const data = await r.json();
+      if (data.ok && data.messages && data.messages.length > 0) {
+        // Remove the default welcome message
+        const welcome = chatBox.querySelector(".welcome");
+        if (welcome) welcome.remove();
+        for (const msg of data.messages) {
+          if (msg.role === "user") {
+            addMessage(msg.content, "user");
+          } else {
+            const botEl = document.createElement("div");
+            botEl.className = "message bot";
+            chatBox.appendChild(botEl);
+            if (hasCodeBlocks(msg.content)) {
+              renderFormatted(botEl, msg.content);
+            } else {
+              botEl.textContent = msg.content;
+            }
+          }
+        }
+      }
+    } catch (e) { /* silently fail - just show empty chat */ }
+  }
+  loadHistory();
+
+  /* ---------- send message ---------- */
   async function sendMessage(message) {
     addMessage(message, "user");
     const typingEl = addTyping();
     sendBtn.disabled = true;
 
     try {
-      const r = await fetch("/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message })
-      });
-      const data = await r.json();
+      let r, data;
+      if (pendingFile) {
+        // File upload mode
+        const fd = new FormData();
+        fd.append("file", pendingFile);
+        fd.append("message", message);
+        r = await fetch("/upload-code", { method: "POST", body: fd });
+        pendingFile = null;
+        fileInput.value = "";
+        filePreview.classList.add("hidden");
+      } else {
+        r = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message })
+        });
+      }
+      data = await r.json();
       typingEl.remove();
 
       if (!data.ok) {
         addMessage("\u26A0 " + (data.error || "Unknown error"), "bot error");
         return;
       }
-
-      const botEl = document.createElement("div");
-      botEl.className = "message bot";
-      chatBox.appendChild(botEl);
-
-      // If response contains code blocks, render with syntax highlighting
-      if (hasCodeBlocks(data.response)) {
-        renderFormatted(botEl, data.response);
-      } else {
-        // Plain text â€” use typing animation
-        await typeInto(botEl, data.response);
-      }
-
-      // Download button (zip for developer, pptx for slides)
-      if (data.download_url) {
-        addDownloadButton(botEl, data.download_url, data.download_name);
-      }
-
+      renderBotMessage(data);
     } catch (err) {
       typingEl.remove();
       addMessage("\u26A0 Connection error: " + err.message, "bot error");
@@ -174,9 +210,10 @@
   form.addEventListener("submit", (e) => {
     e.preventDefault();
     const msg = input.value.trim();
-    if (!msg) return;
+    if (!msg && !pendingFile) return;
     input.value = "";
-    sendMessage(msg);
+    input.style.height = "auto";
+    sendMessage(msg || "Analyze this code");
   });
 
   clearBtn.addEventListener("click", async () => {
@@ -186,10 +223,10 @@
       const data = await r.json();
       if (data.ok) {
         chatBox.innerHTML = "";
-        addMessage("\uD83E\uDDF9 Memory cleared. Starting fresh.", "bot welcome");
+        addMessage("Memory cleared. Starting fresh.", "bot welcome");
       }
     } catch (err) {
-      addMessage("\u26A0 Could not clear memory: " + err.message, "bot error");
+      addMessage("\u26A0 Could not clear: " + err.message, "bot error");
     }
   });
 
