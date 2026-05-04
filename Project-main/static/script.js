@@ -1,5 +1,5 @@
 /* ==========================================================
-   ZENITH OX â€” Chat UI (ChatGPT-style)
+   ZENITH OX â€” Chat UI (ChatGPT-style + file indicator)
    ========================================================== */
 (() => {
   const chatBox   = document.getElementById("chat-box");
@@ -31,7 +31,8 @@
     if (!file) return;
     pendingFile = file;
     filePreview.classList.remove("hidden");
-    filePreview.innerHTML = '<span>\u{1F4CE} ' + file.name + '</span>' +
+    filePreview.innerHTML = '<span>\u{1F4CE} ' + file.name +
+      ' (' + (file.size / 1024).toFixed(1) + ' KB)</span>' +
       '<button type="button" id="removeFile">\u2715</button>';
     document.getElementById("removeFile").addEventListener("click", () => {
       pendingFile = null;
@@ -50,6 +51,14 @@
     return div;
   }
 
+  function addFileIndicator(filename) {
+    const div = document.createElement("div");
+    div.className = "message user file-indicator";
+    div.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align:-3px"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg> ' + filename;
+    chatBox.appendChild(div);
+    chatBox.scrollTop = chatBox.scrollHeight;
+  }
+
   function addTyping() {
     const div = document.createElement("div");
     div.className = "message bot";
@@ -59,8 +68,9 @@
     return div;
   }
 
-  /* ---------- code block detection ---------- */
+  /* ---------- code block detection with filename support ---------- */
   const CODE_RE = /```(\w*)\n([\s\S]*?)```/g;
+  const FILE_COMMENT_RE = /^(?:#|\/\/|<!--|\/\*)\s*File:\s*(.+?)(?:\s*-->|\s*\*\/)?\s*$/i;
 
   function hasCodeBlocks(text) {
     CODE_RE.lastIndex = 0;
@@ -80,14 +90,32 @@
         container.appendChild(span);
       }
       const lang = match[1] || "plaintext";
-      const code = match[2];
+      let code = match[2];
+
+      // Extract filename from first line if present
+      let filename = null;
+      const lines = code.split("\n");
+      if (lines.length > 0) {
+        const fm = lines[0].trim().match(FILE_COMMENT_RE);
+        if (fm) {
+          filename = fm[1].trim();
+          code = lines.slice(1).join("\n").trim();
+        }
+      }
+
       const wrapper = document.createElement("div");
       wrapper.className = "code-block-wrapper";
+
+      // Header bar with filename/language + copy button
       const header = document.createElement("div");
       header.className = "code-header";
-      header.innerHTML = '<span class="code-lang">' + lang + '</span>' +
+      const labelText = filename || lang;
+      header.innerHTML = '<span class="code-lang">' +
+        (filename ? '<strong>' + filename + '</strong>' : lang) +
+        '</span>' +
         '<button class="copy-btn" title="Copy code">Copy</button>';
       wrapper.appendChild(header);
+
       const pre = document.createElement("pre");
       const codeEl = document.createElement("code");
       codeEl.className = "language-" + lang;
@@ -95,13 +123,18 @@
       pre.appendChild(codeEl);
       wrapper.appendChild(pre);
       container.appendChild(wrapper);
+
       if (window.hljs) { hljs.highlightElement(codeEl); }
-      header.querySelector(".copy-btn").addEventListener("click", function() {
-        navigator.clipboard.writeText(code).then(() => {
+
+      const copyBtn = header.querySelector(".copy-btn");
+      const codeCopy = code;
+      copyBtn.addEventListener("click", function() {
+        navigator.clipboard.writeText(codeCopy).then(() => {
           this.textContent = "Copied!";
           setTimeout(() => { this.textContent = "Copy"; }, 2000);
         });
       });
+
       lastIdx = match.index + match[0].length;
     }
     if (lastIdx < text.length) {
@@ -137,18 +170,28 @@
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
-  /* ---------- load chat history on page load ---------- */
+  /* ---------- load chat history ---------- */
   async function loadHistory() {
     try {
       const r = await fetch("/history");
       const data = await r.json();
       if (data.ok && data.messages && data.messages.length > 0) {
-        // Remove the default welcome message
         const welcome = chatBox.querySelector(".welcome");
         if (welcome) welcome.remove();
         for (const msg of data.messages) {
           if (msg.role === "user") {
-            addMessage(msg.content, "user");
+            // Check if it was a file upload message
+            if (msg.content.startsWith("[Uploaded:")) {
+              const fileMatch = msg.content.match(/\[Uploaded: (.+?)\]\s*(.*)/);
+              if (fileMatch) {
+                addFileIndicator(fileMatch[1]);
+                if (fileMatch[2]) addMessage(fileMatch[2], "user");
+              } else {
+                addMessage(msg.content, "user");
+              }
+            } else {
+              addMessage(msg.content, "user");
+            }
           } else {
             const botEl = document.createElement("div");
             botEl.className = "message bot";
@@ -161,23 +204,28 @@
           }
         }
       }
-    } catch (e) { /* silently fail - just show empty chat */ }
+    } catch (e) { /* silently fail */ }
   }
   loadHistory();
 
   /* ---------- send message ---------- */
   async function sendMessage(message) {
-    addMessage(message, "user");
+    // Show file indicator if file attached
+    if (pendingFile) {
+      addFileIndicator(pendingFile.name);
+    }
+    if (message) {
+      addMessage(message, "user");
+    }
     const typingEl = addTyping();
     sendBtn.disabled = true;
 
     try {
       let r, data;
       if (pendingFile) {
-        // File upload mode
         const fd = new FormData();
         fd.append("file", pendingFile);
-        fd.append("message", message);
+        fd.append("message", message || "Analyze this code");
         r = await fetch("/upload-code", { method: "POST", body: fd });
         pendingFile = null;
         fileInput.value = "";
@@ -213,7 +261,7 @@
     if (!msg && !pendingFile) return;
     input.value = "";
     input.style.height = "auto";
-    sendMessage(msg || "Analyze this code");
+    sendMessage(msg);
   });
 
   clearBtn.addEventListener("click", async () => {
