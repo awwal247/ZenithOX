@@ -9,32 +9,46 @@
 </head>
 <body>
   <div class="app-shell">
-    <div class="greeting-bar">
-      {{ greeting }} 👋 · <strong>{{ mode.emoji }} {{ mode.name }}</strong>
-    </div>
     <header class="app-header">
       <div class="brand">
         <span class="logo-dot"></span>
         <h1>ZENITH <span class="accent">OX</span></h1>
       </div>
       <div class="user-pill">
-        <span>👤 {{ username }}</span>
-        <a href="/menu" class="btn-header" title="Switch AI Mode">🔀 Switch</a>
-        <button id="clearBtn" title="Clear memory">🧹 Clear</button>
-        <button id="logoutBtn" title="Logout">⎋ Logout</button>
+        <span>{{ mode.emoji }} {{ mode.name }}</span>
+        <a href="/menu" class="btn-switch" title="Switch AI Mode">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/></svg>
+          Switch
+        </a>
+        <button id="clearBtn" class="btn-icon" title="Clear memory">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m-1 0v12a2 2 0 01-2 2H9a2 2 0 01-2-2V6h10z"/></svg>
+        </button>
+        <button id="logoutBtn" class="btn-icon" title="Logout">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+        </button>
       </div>
     </header>
+
     <main class="chat-main">
-      <div id="chat-box" class="chat-box"></div>
-      <form id="chatForm" class="chat-input">
-        <input type="text" id="user-input" placeholder="Type your question..."
-               autocomplete="off" required />
-        <button type="submit" id="sendBtn">Send ➤</button>
-      </form>
+      <div id="chat-box" class="chat-box">
+        <div class="message bot welcome">{{ greeting }} — {{ mode.emoji }} {{ mode.name }} is ready. How can I help?</div>
+      </div>
+
+      <!-- ChatGPT-style input bar -->
+      <div class="chat-input-area">
+        <form id="chatForm" class="chat-input-bar">
+          <label class="upload-btn" title="Upload zip/rar file">
+            <input type="file" id="fileInput" accept=".zip,.rar" hidden />
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          </label>
+          <textarea id="user-input" rows="1" placeholder="Message {{ mode.name }}..." autocomplete="off" required></textarea>
+          <button type="submit" id="sendBtn" title="Send message">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+          </button>
+        </form>
+        <div id="file-preview" class="file-preview hidden"></div>
+      </div>
     </main>
-    <footer class="app-footer">
-      Zenith OX · {{ mode.name }} · Secure auth · Vector memory
-    </footer>
   </div>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
   <script>window.ZENITH_MODE = "{{ mode_key }}";</script>
