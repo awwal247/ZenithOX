@@ -1,5 +1,5 @@
 /* ==========================================================
-   ZENITH OX â€” Chat UI (ChatGPT-style + file indicator)
+   ZENITH OX â€” Chat UI (Markdown + Math + Copy button)
    ========================================================== */
 (() => {
   const chatBox   = document.getElementById("chat-box");
@@ -10,6 +10,68 @@
   const logoutBtn = document.getElementById("logoutBtn");
   const fileInput = document.getElementById("fileInput");
   const filePreview = document.getElementById("file-preview");
+
+  /* ---------- Configure marked.js ---------- */
+  const renderer = new marked.Renderer();
+
+  // Custom code block renderer: extract filename + highlight
+  const FILE_RE = /^(?:#|\/\/|<!--|\/\*)\s*File:\s*(.+?)(?:\s*-->|\s*\*\/)?\s*$/i;
+
+  renderer.code = function({ text, lang }) {
+    const code = text || "";
+    const language = lang || "plaintext";
+    let filename = null;
+    let cleanCode = code;
+
+    // Extract filename from first line
+    const lines = code.split("\n");
+    if (lines.length > 0) {
+      const m = lines[0].trim().match(FILE_RE);
+      if (m) {
+        filename = m[1].trim();
+        cleanCode = lines.slice(1).join("\n").trim();
+      }
+    }
+
+    // Highlight code
+    let highlighted;
+    try {
+      if (hljs.getLanguage(language)) {
+        highlighted = hljs.highlight(cleanCode, { language }).value;
+      } else {
+        highlighted = hljs.highlightAuto(cleanCode).value;
+      }
+    } catch (e) {
+      highlighted = cleanCode.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    const label = filename ? '<strong>' + filename + '</strong>' : language;
+    const escapedCode = cleanCode.replace(/`/g, "\\`").replace(/\$/g, "\\$");
+
+    return '<div class="code-block-wrapper">' +
+      '<div class="code-header">' +
+        '<span class="code-lang">' + label + '</span>' +
+        '<button class="copy-btn" onclick="copyCode(this)" data-code="' +
+          btoa(unescape(encodeURIComponent(cleanCode))) + '">Copy</button>' +
+      '</div>' +
+      '<pre><code class="hljs language-' + language + '">' + highlighted + '</code></pre>' +
+    '</div>';
+  };
+
+  marked.setOptions({
+    renderer: renderer,
+    breaks: true,
+    gfm: true,
+  });
+
+  // Global copy function for code blocks
+  window.copyCode = function(btn) {
+    const code = decodeURIComponent(escape(atob(btn.dataset.code)));
+    navigator.clipboard.writeText(code).then(() => {
+      btn.textContent = "Copied!";
+      setTimeout(() => { btn.textContent = "Copy"; }, 2000);
+    });
+  };
 
   /* ---------- auto-resize textarea ---------- */
   input.addEventListener("input", () => {
@@ -24,7 +86,7 @@
     }
   });
 
-  /* ---------- file upload preview ---------- */
+  /* ---------- file upload ---------- */
   let pendingFile = null;
   fileInput.addEventListener("change", () => {
     const file = fileInput.files[0];
@@ -68,105 +130,56 @@
     return div;
   }
 
-  /* ---------- code block detection with filename support ---------- */
-  const CODE_RE = /```(\w*)\n([\s\S]*?)```/g;
-  const FILE_COMMENT_RE = /^(?:#|\/\/|<!--|\/\*)\s*File:\s*(.+?)(?:\s*-->|\s*\*\/)?\s*$/i;
+  /* ---------- render bot message with markdown + math + copy ---------- */
+  function renderBotMessage(responseText, downloadUrl, downloadName) {
+    const wrapper = document.createElement("div");
+    wrapper.className = "message bot";
 
-  function hasCodeBlocks(text) {
-    CODE_RE.lastIndex = 0;
-    return CODE_RE.test(text);
-  }
+    // Render markdown
+    const content = document.createElement("div");
+    content.className = "md-content";
+    content.innerHTML = marked.parse(responseText);
+    wrapper.appendChild(content);
 
-  function renderFormatted(container, text) {
-    container.innerHTML = "";
-    CODE_RE.lastIndex = 0;
-    let lastIdx = 0;
-    let match;
-
-    while ((match = CODE_RE.exec(text)) !== null) {
-      if (match.index > lastIdx) {
-        const span = document.createElement("span");
-        span.textContent = text.slice(lastIdx, match.index);
-        container.appendChild(span);
-      }
-      const lang = match[1] || "plaintext";
-      let code = match[2];
-
-      // Extract filename from first line if present
-      let filename = null;
-      const lines = code.split("\n");
-      if (lines.length > 0) {
-        const fm = lines[0].trim().match(FILE_COMMENT_RE);
-        if (fm) {
-          filename = fm[1].trim();
-          code = lines.slice(1).join("\n").trim();
-        }
-      }
-
-      const wrapper = document.createElement("div");
-      wrapper.className = "code-block-wrapper";
-
-      // Header bar with filename/language + copy button
-      const header = document.createElement("div");
-      header.className = "code-header";
-      const labelText = filename || lang;
-      header.innerHTML = '<span class="code-lang">' +
-        (filename ? '<strong>' + filename + '</strong>' : lang) +
-        '</span>' +
-        '<button class="copy-btn" title="Copy code">Copy</button>';
-      wrapper.appendChild(header);
-
-      const pre = document.createElement("pre");
-      const codeEl = document.createElement("code");
-      codeEl.className = "language-" + lang;
-      codeEl.textContent = code;
-      pre.appendChild(codeEl);
-      wrapper.appendChild(pre);
-      container.appendChild(wrapper);
-
-      if (window.hljs) { hljs.highlightElement(codeEl); }
-
-      const copyBtn = header.querySelector(".copy-btn");
-      const codeCopy = code;
-      copyBtn.addEventListener("click", function() {
-        navigator.clipboard.writeText(codeCopy).then(() => {
-          this.textContent = "Copied!";
-          setTimeout(() => { this.textContent = "Copy"; }, 2000);
-        });
+    // Render math (KaTeX)
+    if (window.renderMathInElement) {
+      renderMathInElement(content, {
+        delimiters: [
+          { left: "$$", right: "$$", display: true },
+          { left: "$", right: "$", display: false },
+          { left: "\\(", right: "\\)", display: false },
+          { left: "\\[", right: "\\]", display: true },
+        ],
+        throwOnError: false,
       });
+    }
 
-      lastIdx = match.index + match[0].length;
+    // Download button
+    if (downloadUrl) {
+      const dl = document.createElement("a");
+      dl.href = downloadUrl;
+      dl.download = downloadName || "download";
+      dl.className = "download-btn";
+      dl.textContent = "\uD83D\uDCE5 Download " + (downloadName || "file");
+      wrapper.appendChild(dl);
     }
-    if (lastIdx < text.length) {
-      const span = document.createElement("span");
-      span.textContent = text.slice(lastIdx);
-      container.appendChild(span);
-    }
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
 
-  function addDownloadButton(parentEl, url, filename) {
-    const btn = document.createElement("a");
-    btn.href = url;
-    btn.download = filename || "download";
-    btn.className = "download-btn";
-    btn.textContent = "\uD83D\uDCE5 Download " + (filename || "file");
-    parentEl.appendChild(btn);
-    chatBox.scrollTop = chatBox.scrollHeight;
-  }
+    // Copy message button
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "msg-copy-btn";
+    copyBtn.title = "Copy response";
+    copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(responseText).then(() => {
+        copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4ade80" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>';
+        setTimeout(() => {
+          copyBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>';
+        }, 2000);
+      });
+    });
+    wrapper.appendChild(copyBtn);
 
-  function renderBotMessage(data) {
-    const botEl = document.createElement("div");
-    botEl.className = "message bot";
-    chatBox.appendChild(botEl);
-    if (hasCodeBlocks(data.response)) {
-      renderFormatted(botEl, data.response);
-    } else {
-      botEl.textContent = data.response;
-    }
-    if (data.download_url) {
-      addDownloadButton(botEl, data.download_url, data.download_name);
-    }
+    chatBox.appendChild(wrapper);
     chatBox.scrollTop = chatBox.scrollHeight;
   }
 
@@ -180,12 +193,11 @@
         if (welcome) welcome.remove();
         for (const msg of data.messages) {
           if (msg.role === "user") {
-            // Check if it was a file upload message
             if (msg.content.startsWith("[Uploaded:")) {
-              const fileMatch = msg.content.match(/\[Uploaded: (.+?)\]\s*(.*)/);
-              if (fileMatch) {
-                addFileIndicator(fileMatch[1]);
-                if (fileMatch[2]) addMessage(fileMatch[2], "user");
+              const fm = msg.content.match(/\[Uploaded: (.+?)\]\s*(.*)/);
+              if (fm) {
+                addFileIndicator(fm[1]);
+                if (fm[2]) addMessage(fm[2], "user");
               } else {
                 addMessage(msg.content, "user");
               }
@@ -193,14 +205,7 @@
               addMessage(msg.content, "user");
             }
           } else {
-            const botEl = document.createElement("div");
-            botEl.className = "message bot";
-            chatBox.appendChild(botEl);
-            if (hasCodeBlocks(msg.content)) {
-              renderFormatted(botEl, msg.content);
-            } else {
-              botEl.textContent = msg.content;
-            }
+            renderBotMessage(msg.content);
           }
         }
       }
@@ -210,18 +215,13 @@
 
   /* ---------- send message ---------- */
   async function sendMessage(message) {
-    // Show file indicator if file attached
-    if (pendingFile) {
-      addFileIndicator(pendingFile.name);
-    }
-    if (message) {
-      addMessage(message, "user");
-    }
+    if (pendingFile) addFileIndicator(pendingFile.name);
+    if (message) addMessage(message, "user");
     const typingEl = addTyping();
     sendBtn.disabled = true;
 
     try {
-      let r, data;
+      let r;
       if (pendingFile) {
         const fd = new FormData();
         fd.append("file", pendingFile);
@@ -237,14 +237,14 @@
           body: JSON.stringify({ message })
         });
       }
-      data = await r.json();
+      const data = await r.json();
       typingEl.remove();
 
       if (!data.ok) {
         addMessage("\u26A0 " + (data.error || "Unknown error"), "bot error");
         return;
       }
-      renderBotMessage(data);
+      renderBotMessage(data.response, data.download_url, data.download_name);
     } catch (err) {
       typingEl.remove();
       addMessage("\u26A0 Connection error: " + err.message, "bot error");
