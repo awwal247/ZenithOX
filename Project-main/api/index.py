@@ -108,7 +108,19 @@ AI_MODES = {
             "Debug and fix code issues with clear explanations. "
             "Explain complex programming concepts simply. "
             "Follow best practices and design patterns. "
-            "Always provide working code examples with proper formatting."
+            "Always provide working code examples with proper formatting. "
+            "IMPORTANT FILE NAMING: When generating code files, ALWAYS put the filename as a comment "
+            "on the FIRST line inside the code fence. Examples:\n"
+            "```python\n# File: app.py\n...code...\n```\n"
+            "```html\n<!-- File: templates/index.html -->\n...code...\n```\n"
+            "```css\n/* File: static/style.css */\n...code...\n```\n"
+            "```javascript\n// File: static/script.js\n...code...\n```\n"
+            "Use proper project paths including directories like templates/, static/, etc. "
+            "CODE EXECUTION: When the user asks you to run, execute, or test code, "
+            "simulate the execution by analyzing the code logically and showing the expected "
+            "output in a block like:\n```output\n[Expected Output]\n```\n"
+            "For bash/shell commands, simulate the terminal output similarly. "
+            "Be accurate about what the code would produce."
         ),
         "temperature": 0.3,
         "max_tokens": 2000,
@@ -240,38 +252,61 @@ MAX_UPLOAD_SIZE = 10 * 1024 * 1024  # 10 MB
 
 
 def extract_code_blocks(text):
-    """Extract all fenced code blocks from markdown text."""
+    """Extract all fenced code blocks from markdown text, including filenames."""
     matches = CODE_BLOCK_RE.findall(text)
     blocks = []
+    file_comment_re = re.compile(
+        r"^(?:#|//|<!--|/\*)?\s*File:\s*(.+?)(?:\s*-->|\s*\*/)?\s*$",
+        re.IGNORECASE
+    )
     for lang, content in matches:
-        blocks.append({"language": (lang or "txt").lower(), "code": content.strip()})
+        content = content.strip()
+        filename = None
+        lines = content.split("\n")
+        if lines:
+            m = file_comment_re.match(lines[0].strip())
+            if m:
+                filename = m.group(1).strip()
+                content = "\n".join(lines[1:]).strip()
+        blocks.append({
+            "language": (lang or "txt").lower(),
+            "code": content,
+            "filename": filename,
+        })
     return blocks
 
 
 def save_code_as_zip(code_blocks):
-    """Save code blocks as files inside a zip archive. Returns download info."""
+    """Save code blocks as files inside a zip archive with proper names & directories."""
     if not code_blocks:
         return None
     timestamp = int(time.time())
     zip_filename = f"zenith_code_{timestamp}.zip"
     zip_filepath = f"/tmp/{zip_filename}"
+    used_names = set()
 
     with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zf:
         for i, block in enumerate(code_blocks):
             lang = block["language"]
             ext = LANG_EXTENSIONS.get(lang, ".txt")
-            if len(code_blocks) == 1:
-                fname = f"code{ext}"
+            # Use AI-provided filename if available, otherwise fallback
+            if block.get("filename"):
+                fname = block["filename"]
+            elif len(code_blocks) == 1:
+                fname = f"main{ext}"
             else:
-                fname = f"code_{i + 1}{ext}"
+                fname = f"file_{i + 1}{ext}"
+            # Avoid duplicate filenames
+            if fname in used_names:
+                base, fext = os.path.splitext(fname)
+                fname = f"{base}_{i + 1}{fext}"
+            used_names.add(fname)
             zf.writestr(fname, block["code"])
 
     return {
         "filename": zip_filename,
         "url": f"/download-zip/{zip_filename}",
-        "files": [f"code_{i+1}{LANG_EXTENSIONS.get(b['language'], '.txt')}"
-                  if len(code_blocks) > 1 else f"code{LANG_EXTENSIONS.get(b['language'], '.txt')}"
-                  for i, b in enumerate(code_blocks)],
+        "files": list(used_names),
     }
 
 
