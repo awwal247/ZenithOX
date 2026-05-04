@@ -994,3 +994,19 @@ html, body {
   .chat-box { max-height: calc(100vh - 240px); }
   .btn-switch span { display: none; }
 }
+
+/* File attachment indicator in chat */
+.message.file-indicator {
+  font-size: .85rem;
+  padding: 8px 14px;
+  background: rgba(99,102,241,.2);
+  border: 1px solid rgba(99,102,241,.3);
+  border-radius: 10px;
+  color: #c4b5fd;
+}
+
+/* Bold filenames in code headers */
+.code-header .code-lang strong {
+  color: var(--accent);
+  font-weight: 600;
+}
