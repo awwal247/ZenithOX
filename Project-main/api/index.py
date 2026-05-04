@@ -982,6 +982,20 @@ def download_zip(filename):
     return send_from_directory("/tmp", filename, as_attachment=True)
 
 
+
+# ---------- CHAT HISTORY (for loading saved chats) ----------
+@app.route("/history")
+def history():
+    if "user_id" not in session:
+        return jsonify({"ok": False, "error": "Not authenticated."}), 401
+    user_id  = session["user_id"]
+    mode_key = session.get("ai_mode", "researcher")
+    memory_key = f"{user_id}:{mode_key}"
+    messages = get_user_memory(memory_key)
+    # Return last 30 messages (15 exchanges)
+    return jsonify({"ok": True, "messages": messages[-30:]})
+
+
 # ==========================================================
 # 10. ENTRY POINT
 # ==========================================================
