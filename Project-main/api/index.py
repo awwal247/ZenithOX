@@ -109,7 +109,7 @@ AI_MODES = {
             "Explain complex programming concepts simply. "
             "Follow best practices and design patterns. "
             "Always provide working code examples with proper formatting. "
-            "IMPORTANT FILE NAMING: When generating code files, ALWAYS put the filename as a comment "
+            "CRITICAL FILE NAMING RULES: 1. ONLY add the File: comment to ACTUAL PROJECT FILES that the user would save. 2. Do NOT add File: to bash commands, terminal instructions, or expected output. 3. For project files, ALWAYS put the filename as a comment "
             "on the FIRST line inside the code fence. Examples:\n"
             "```python\n# File: app.py\n...code...\n```\n"
             "```html\n<!-- File: templates/index.html -->\n...code...\n```\n"
@@ -277,25 +277,44 @@ def extract_code_blocks(text):
 
 
 def save_code_as_zip(code_blocks):
-    """Save code blocks as files inside a zip archive with proper names & directories."""
+    """Save ONLY named code blocks as files in a zip. Skips commands & output."""
     if not code_blocks:
         return None
+
+    # Filter: only include blocks that have a filename OR are substantial code
+    named_blocks = []
+    for block in code_blocks:
+        lang = block["language"]
+        # Always skip output/terminal blocks
+        if lang in ("output", "terminal", "console"):
+            continue
+        # If it has a filename from the AI, always include it
+        if block.get("filename"):
+            named_blocks.append(block)
+            continue
+        # Skip short bash/shell commands (instructional, not project files)
+        if lang in ("bash", "sh", "shell") and block["code"].count("\n") < 3:
+            continue
+        # For other languages, only include if substantial (>5 lines)
+        if block["code"].count("\n") >= 5:
+            ext = LANG_EXTENSIONS.get(lang, ".txt")
+            block["filename"] = f"main{ext}" if len(code_blocks) == 1 else None
+            if block["filename"]:
+                named_blocks.append(block)
+
+    if not named_blocks:
+        return None
+
     timestamp = int(time.time())
     zip_filename = f"zenith_code_{timestamp}.zip"
     zip_filepath = f"/tmp/{zip_filename}"
     used_names = set()
 
     with zipfile.ZipFile(zip_filepath, "w", zipfile.ZIP_DEFLATED) as zf:
-        for i, block in enumerate(code_blocks):
+        for i, block in enumerate(named_blocks):
             lang = block["language"]
             ext = LANG_EXTENSIONS.get(lang, ".txt")
-            # Use AI-provided filename if available, otherwise fallback
-            if block.get("filename"):
-                fname = block["filename"]
-            elif len(code_blocks) == 1:
-                fname = f"main{ext}"
-            else:
-                fname = f"file_{i + 1}{ext}"
+            fname = block.get("filename") or f"file_{i + 1}{ext}"
             # Avoid duplicate filenames
             if fname in used_names:
                 base, fext = os.path.splitext(fname)
@@ -303,10 +322,13 @@ def save_code_as_zip(code_blocks):
             used_names.add(fname)
             zf.writestr(fname, block["code"])
 
+    if not used_names:
+        return None
+
     return {
         "filename": zip_filename,
         "url": f"/download-zip/{zip_filename}",
-        "files": list(used_names),
+        "files": sorted(used_names),
     }
 
 
