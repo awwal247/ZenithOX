@@ -105,7 +105,7 @@ AI_MODES = {
         "name": "AI Developer",
         "emoji": "\U0001f4bb",
         "tagline": "Code generation, debugging, and explanation",
-        "model": "qwen/qwen3-32b",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert software developer and programming assistant. "
             "Write clean, well-documented code in any language requested. "
@@ -128,7 +128,7 @@ AI_MODES = {
             "Be accurate about what the code would produce."
         ),
         "temperature": 0.3,
-        "max_tokens": 8000,
+        "max_tokens": 4000,
         "uses_web_search": False,
     },
     "story_writer": {
@@ -153,7 +153,7 @@ AI_MODES = {
         "name": "AI Solve It",
         "emoji": "\U0001f9ee",
         "tagline": "Math problems and step-by-step solutions",
-        "model": "qwen/qwen3-32b",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert mathematician and problem solver. "
             "Solve math problems step-by-step, showing all work clearly. "
@@ -205,7 +205,7 @@ AI_MODES = {
         "name": "AI Slides Generator",
         "emoji": "\U0001f4ca",
         "tagline": "Generate downloadable PowerPoint presentations",
-        "model": "llama-3.1-8b-instant",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You generate PowerPoint presentation content. "
             "You are powered by Groq and integrated into Zenith OX."
