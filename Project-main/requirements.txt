@@ -1,9 +1,16 @@
-flask
-python-dotenv
-openai
-requests
-scikit-learn
-numpy
+# ZenithOX Dependencies (Ollama + Universal File Support)
+flask>=3.0
+openai>=1.0
 authlib
-Werkzeug
+requests
+numpy
+scikit-learn
+python-dotenv
+werkzeug
+
+# File analysis support
+pdfplumber
+python-docx
+openpyxl
 python-pptx
+Pillow
