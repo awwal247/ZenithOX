@@ -1,12 +1,12 @@
 """
 ==========================================================
-  ZENITH OX â€” Secure Intelligent Research Assistant
-  Backend: Flask + Gemini 2.5 Flash (free) + TF-IDF Vector Memory
+  ZENITH OX Ã¢â‚¬â€ Secure Intelligent Research Assistant
+  Backend: Flask + Ollama (local LLMs) + TF-IDF Vector Memory
   Auth:    Email+Password  OR  Google OAuth  (or both)
   Web:     Tavily API via raw `requests` (no SDK)
   Stage 2: AI Mode Selection (6 modes)
   
-  UPDATED: Groq -> Gemini 2.5 Flash via OpenAI-compatible API
+  UPDATED: Gemini -> Ollama local models via OpenAI-compatible API
 ==========================================================
 """
 
@@ -33,6 +33,10 @@ from dotenv import load_dotenv
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+# File analysis imports (universal file support)
+import csv
+import mimetypes
+
 # ----------------------------------------------------------
 # 1. ENVIRONMENT
 # ----------------------------------------------------------
@@ -46,16 +50,16 @@ MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
 WRITABLE_USERS  = "/tmp/users.json"
 WRITABLE_MEMORY = "/tmp/memory.json"
 
-GEMINI_API_KEY      = os.getenv("GEMINI_API_KEY", "")
+OLLAMA_BASE_URL     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 SECRET_KEY          = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
-gemini_client = OpenAI(
-    api_key=GEMINI_API_KEY,
-    base_url="https://generativelanguage.googleapis.com/v1beta/openai/"
+ollama_client = OpenAI(
+    api_key="ollama",  # Ollama doesn't validate API keys, but the SDK requires one
+    base_url=f"{OLLAMA_BASE_URL}/v1/",
 )
 
 # ----------------------------------------------------------
@@ -101,14 +105,14 @@ AI_MODES = {
         "name": "AI Developer",
         "emoji": "\U0001f4bb",
         "tagline": "Code generation, debugging, and explanation",
-        "model": "gemini-2.5-flash",
+        "model": "qwen2.5-coder:7b",
         "system_prompt": (
             "You are an expert software developer and programming assistant. "
             "Write clean, well-documented code in any language requested. "
             "Debug and fix code issues with clear explanations. "
             "Explain complex programming concepts simply. "
             "Follow best practices and design patterns. "
-            "you are created by Google but put into use in zenith OX ."
+            "You are powered by Ollama and integrated into Zenith OX."
             "Always provide working code examples with proper formatting. "
             "CRITICAL FILE NAMING RULES: 1. ONLY add the File: comment to ACTUAL PROJECT FILES that the user would save. 2. Do NOT add File: to bash commands, terminal instructions, or expected output. 3. For project files, ALWAYS put the filename as a comment "
             "on the FIRST line inside the code fence. Examples:\n"
@@ -131,12 +135,12 @@ AI_MODES = {
         "name": "AI Story Writer",
         "emoji": "\U0001f4d6",
         "tagline": "Creative writing, stories, poems, and scripts",
-        "model": "gemini-2.5-flash",
+        "model": "llama3.3:latest",
         "system_prompt": (
             "You are a talented creative writer. "
             "Write engaging stories with vivid descriptions and compelling characters. "
             "Craft poetry with rhythm and imagery. "
-            "you are created by Google but put into use in zenithOX."
+            "You are powered by Ollama and integrated into Zenith OX."
             "Create scripts with authentic dialogue. "
             "Adapt your writing style to match the requested genre. "
             "Be creative, original, and evocative in your writing."
@@ -149,12 +153,12 @@ AI_MODES = {
         "name": "AI Solve It",
         "emoji": "\U0001f9ee",
         "tagline": "Math problems and step-by-step solutions",
-        "model": "gemini-2.5-flash",
+        "model": "qwen2.5:math",
         "system_prompt": (
             "You are an expert mathematician and problem solver. "
             "Solve math problems step-by-step, showing all work clearly. "
             "Explain mathematical concepts with examples. "
-            "you are created by Google but put into use in zenithOX."
+            "You are powered by Ollama and integrated into Zenith OX."
             "Handle algebra, calculus, statistics, geometry, and more. "
             "Break complex problems into manageable numbered steps. "
             "Always verify your answers by checking the work."
@@ -167,11 +171,11 @@ AI_MODES = {
         "name": "AI Researcher",
         "emoji": "\U0001f50d",
         "tagline": "Web search + memory research assistant",
-        "model": "gemini-2.5-flash",
+        "model": "llama3.3:latest",
         "system_prompt": (
             "You are Zenith OX, a secure, intelligent research assistant. "
             "You answer clearly, accurately, and concisely. "
-            "you are created by Google but put into use in zenithOX."
+            "You are powered by Ollama and integrated into Zenith OX."
             "Use the provided past memory and web context when relevant, "
             "but never fabricate facts. If unsure, say so."
         ),
@@ -183,12 +187,12 @@ AI_MODES = {
         "name": "AI Email Writer",
         "emoji": "\u2709\ufe0f",
         "tagline": "Generate professional emails ready to copy",
-        "model": "gemini-2.5-flash",
+        "model": "llama3.3:latest",
         "system_prompt": (
             "You are an expert email writer. "
             "Write clear, professional, and well-structured emails. "
             "Adapt tone to context: formal, casual, follow-up, complaint, request, etc. "
-            "you are created by Google but put into use in zenithOX."
+            "You are powered by Ollama and integrated into Zenith OX."
             "Include appropriate Subject line, greeting, body, and sign-off. "
             "Keep emails concise yet complete. "
             "Format the output as a ready-to-copy email with Subject: and Body: clearly marked."
@@ -201,10 +205,10 @@ AI_MODES = {
         "name": "AI Slides Generator",
         "emoji": "\U0001f4ca",
         "tagline": "Generate downloadable PowerPoint presentations",
-        "model": "gemini-2.5-flash",
+        "model": "llama3.1:8b",
         "system_prompt": (
             "You generate PowerPoint presentation content. "
-            "you are created by Google but put into use in zenithOX."
+            "You are powered by Ollama and integrated into Zenith OX."
             "When the user asks for a presentation, generate ONLY a valid JSON object with no extra text.\n"
             "Use this exact format:\n"
             '{"title": "Presentation Title", "slides": ['
@@ -405,6 +409,199 @@ def read_archive(file_storage):
     return files, None
 
 
+# ----------------------------------------------------------
+# UNIVERSAL FILE READER (supports any file type)
+# ----------------------------------------------------------
+# Supported file types and their extensions
+SUPPORTED_FILE_TYPES = {
+    # Documents
+    ".pdf", ".docx", ".doc", ".txt", ".rtf", ".md",
+    # Spreadsheets
+    ".csv", ".xlsx", ".xls", ".tsv",
+    # Code files (existing)
+    ".py", ".js", ".ts", ".tsx", ".jsx", ".html", ".css", ".java",
+    ".c", ".cpp", ".h", ".cs", ".go", ".rs", ".rb", ".php", ".sql",
+    ".swift", ".kt", ".dart", ".r", ".sh", ".json", ".yaml", ".yml",
+    ".xml", ".toml", ".cfg", ".ini", ".env", ".gitignore",
+    ".dockerfile", ".makefile",
+    # Images (text description only)
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg",
+    # Archives
+    ".zip", ".rar",
+    # Presentations
+    ".pptx", ".ppt",
+}
+
+
+def extract_file_content(file_storage):
+    """
+    Extract text content from ANY uploaded file.
+    Returns (content_string, error_string).
+    For unsupported types, returns a helpful message.
+    """
+    filename = file_storage.filename or "unknown"
+    ext = os.path.splitext(filename)[1].lower()
+    file_bytes = file_storage.read()
+
+    if len(file_bytes) > MAX_UPLOAD_SIZE:
+        return None, "File too large (max 10 MB)"
+
+    try:
+        # === PDF FILES ===
+        if ext == ".pdf":
+            try:
+                import pdfplumber
+                text_parts = []
+                with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+                    for i, page in enumerate(pdf.pages[:50]):  # Max 50 pages
+                        page_text = page.extract_text() or ""
+                        if page_text.strip():
+                            text_parts.append(f"--- Page {i+1} ---\n{page_text}")
+                if text_parts:
+                    content = "\n\n".join(text_parts)
+                    if len(content) > 30000:
+                        content = content[:30000] + "\n\n[... truncated due to length ...]"
+                    return content, None
+                return None, "Could not extract text from PDF (may be image-based)"
+            except ImportError:
+                return None, "PDF support requires: pip install pdfplumber"
+
+        # === WORD DOCUMENTS ===
+        elif ext in (".docx", ".doc"):
+            try:
+                from docx import Document
+                doc = Document(io.BytesIO(file_bytes))
+                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+                if paragraphs:
+                    content = "\n\n".join(paragraphs)
+                    if len(content) > 30000:
+                        content = content[:30000] + "\n\n[... truncated ...]"
+                    return content, None
+                return None, "Word document appears to be empty"
+            except ImportError:
+                return None, "DOCX support requires: pip install python-docx"
+
+        # === EXCEL / SPREADSHEETS ===
+        elif ext in (".xlsx", ".xls"):
+            try:
+                import openpyxl
+                wb = openpyxl.load_workbook(io.BytesIO(file_bytes), read_only=True)
+                sheets_text = []
+                for sheet_name in wb.sheetnames[:10]:  # Max 10 sheets
+                    ws = wb[sheet_name]
+                    rows = []
+                    for row in ws.iter_rows(max_row=200, values_only=True):  # Max 200 rows
+                        row_str = " | ".join(str(cell) if cell is not None else "" for cell in row)
+                        if row_str.strip(" |"):
+                            rows.append(row_str)
+                    if rows:
+                        sheets_text.append(f"--- Sheet: {sheet_name} ---\n" + "\n".join(rows))
+                wb.close()
+                if sheets_text:
+                    content = "\n\n".join(sheets_text)
+                    if len(content) > 30000:
+                        content = content[:30000] + "\n\n[... truncated ...]"
+                    return content, None
+                return None, "Excel file appears to be empty"
+            except ImportError:
+                return None, "Excel support requires: pip install openpyxl"
+
+        # === CSV / TSV ===
+        elif ext in (".csv", ".tsv"):
+            try:
+                text = file_bytes.decode("utf-8", errors="replace")
+                delimiter = "\t" if ext == ".tsv" else ","
+                reader = csv.reader(text.splitlines(), delimiter=delimiter)
+                rows = []
+                for i, row in enumerate(reader):
+                    if i >= 500:  # Max 500 rows
+                        rows.append("[... more rows truncated ...]")
+                        break
+                    rows.append(" | ".join(row))
+                if rows:
+                    content = "\n".join(rows)
+                    if len(content) > 30000:
+                        content = content[:30000] + "\n\n[... truncated ...]"
+                    return content, None
+                return None, "CSV file appears to be empty"
+            except Exception:
+                return None, "Could not parse CSV file"
+
+        # === POWERPOINT ===
+        elif ext in (".pptx", ".ppt"):
+            try:
+                from pptx import Presentation
+                prs = Presentation(io.BytesIO(file_bytes))
+                slides_text = []
+                for i, slide in enumerate(prs.slides):
+                    texts = []
+                    for shape in slide.shapes:
+                        if hasattr(shape, "text") and shape.text.strip():
+                            texts.append(shape.text)
+                    if texts:
+                        slides_text.append(f"--- Slide {i+1} ---\n" + "\n".join(texts))
+                if slides_text:
+                    return "\n\n".join(slides_text), None
+                return None, "PowerPoint file appears to be empty"
+            except ImportError:
+                return None, "PPTX support requires: pip install python-pptx"
+
+        # === IMAGES (describe what was uploaded) ===
+        elif ext in (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"):
+            try:
+                from PIL import Image
+                img = Image.open(io.BytesIO(file_bytes))
+                w, h = img.size
+                mode = img.mode
+                fmt = img.format or ext.upper()
+                desc = (
+                    f"[Uploaded Image: {filename}]\n"
+                    f"Format: {fmt}, Size: {w}x{h} pixels, Color mode: {mode}\n"
+                    f"Note: This is an image file. I can discuss it based on context, "
+                    f"but I cannot visually analyze the image content directly."
+                )
+                return desc, None
+            except ImportError:
+                return f"[Uploaded Image: {filename}] (Install Pillow for metadata)", None
+            except Exception:
+                return f"[Uploaded Image: {filename}]", None
+
+        # === SVG ===
+        elif ext == ".svg":
+            text = file_bytes.decode("utf-8", errors="replace")
+            if len(text) > 30000:
+                text = text[:30000] + "\n[... truncated ...]"
+            return f"[SVG Image: {filename}]\n{text}", None
+
+        # === ARCHIVES (use existing handler) ===
+        elif ext in (".zip", ".rar"):
+            file_storage.seek(0)
+            files, err = read_archive(file_storage)
+            if err:
+                return None, err
+            return format_files_for_prompt(files), None
+
+        # === PLAIN TEXT / CODE FILES ===
+        elif ext in CODE_EXTENSIONS or ext in (".txt", ".md", ".rtf"):
+            text = file_bytes.decode("utf-8", errors="replace")
+            if len(text) > 50000:
+                text = text[:50000] + "\n\n[... truncated ...]"
+            return text, None
+
+        # === UNKNOWN FILE TYPE ===
+        else:
+            # Try to read as text anyway
+            try:
+                text = file_bytes.decode("utf-8", errors="strict")
+                if len(text) > 30000:
+                    text = text[:30000] + "\n\n[... truncated ...]"
+                return f"[File: {filename}]\n{text}", None
+            except UnicodeDecodeError:
+                return None, f"Unsupported file type: {ext}. I can analyze text documents, PDFs, Word files, spreadsheets, code files, and more."
+    except Exception as e:
+        return None, f"Error reading file: {str(e)}"
+
+
 def format_files_for_prompt(files_dict):
     """Format extracted files into a string for the AI prompt."""
     parts = []
@@ -582,9 +779,9 @@ def tavily_search(query, max_results=3):
 
 
 # ==========================================================
-# 7. GEMINI CHAT (mode-aware)
+# 7. OLLAMA CHAT (mode-aware)
 # ==========================================================
-def ask_gemini(user_input, vector_memory, web_context, mode, recent_history=None):
+def ask_ollama(user_input, vector_memory, web_context, mode, recent_history=None):
     # Build messages array with conversation history for context
     messages = [{"role": "system", "content": mode["system_prompt"]}]
 
@@ -605,7 +802,7 @@ def ask_gemini(user_input, vector_memory, web_context, mode, recent_history=None
     messages.append({"role": "user", "content": prompt})
 
     try:
-        resp = gemini_client.chat.completions.create(
+        resp = ollama_client.chat.completions.create(
             model=mode["model"],
             messages=messages,
             temperature=mode["temperature"],
@@ -877,6 +1074,23 @@ def logout():
 
 
 # ---------- CHAT ----------
+# Keywords that indicate user wants file generation/download
+FILE_GEN_KEYWORDS = [
+    "create a file", "generate a file", "make a file", "write a file",
+    "save as", "download", "export", "create file", "generate file",
+    "make file", "write file", "give me the file", "give me a file",
+    "create the code", "generate the code", "zip", "package",
+    "save the code", "downloadable", "create a project",
+    "generate a project", "make a project", "build a project",
+]
+
+
+def user_wants_file(message):
+    """Check if the user's message indicates they want a downloadable file."""
+    msg_lower = message.lower()
+    return any(kw in msg_lower for kw in FILE_GEN_KEYWORDS)
+
+
 @app.route("/chat", methods=["POST"])
 def chat():
     if "user_id" not in session:
@@ -886,20 +1100,47 @@ def chat():
     mode_key = session.get("ai_mode", "researcher")
     mode     = AI_MODES.get(mode_key, AI_MODES["researcher"])
 
-    data    = request.get_json(silent=True) or {}
-    message = (data.get("message") or "").strip()
+    # Support both JSON and multipart/form-data (for file uploads)
+    file_context = ""
+    uploaded_file = None
 
-    if not message:
+    if request.content_type and "multipart/form-data" in request.content_type:
+        message = (request.form.get("message") or "").strip()
+        uploaded_file = request.files.get("file")
+    else:
+        data    = request.get_json(silent=True) or {}
+        message = (data.get("message") or "").strip()
+
+    if not message and not uploaded_file:
+        return jsonify({"ok": False, "error": "Empty message."}), 400
+
+    # â”€â”€ Handle file upload (any file type) â”€â”€
+    if uploaded_file and uploaded_file.filename:
+        content, error = extract_file_content(uploaded_file)
+        if error:
+            return jsonify({"ok": False, "error": error}), 400
+        if content:
+            file_context = (
+                f"\n\n--- Uploaded File: {uploaded_file.filename} ---\n"
+                f"{content}\n--- End of File ---\n"
+            )
+
+    # Combine message with file context
+    full_message = message
+    if file_context:
+        full_message = f"{message}\n{file_context}" if message else f"Please analyze this file:{file_context}"
+
+    if not full_message.strip():
         return jsonify({"ok": False, "error": "Empty message."}), 400
 
     memory_key = f"{user_id}:{mode_key}"
 
-    recent_history = get_user_memory(memory_key)  # Get recent conversation
-    vector_mem = retrieve_relevant_memory(memory_key, message)
-    web_ctx    = tavily_search(message) if mode.get("uses_web_search") else ""
-    answer     = ask_gemini(message, vector_mem, web_ctx, mode, recent_history=recent_history)
+    recent_history = get_user_memory(memory_key)
+    vector_mem = retrieve_relevant_memory(memory_key, message or "file analysis")
+    web_ctx    = tavily_search(message) if mode.get("uses_web_search") and message else ""
+    answer     = ask_ollama(full_message, vector_mem, web_ctx, mode, recent_history=recent_history)
 
-    # Handle PPTX special mode
+    # Handle PPTX special mode â€” always generates file (that's its purpose)
     if mode.get("special_handler") == "pptx":
         try:
             result = generate_pptx(answer, user_id)
@@ -920,8 +1161,8 @@ def chat():
         except Exception as e:
             print(f"[PPTX error] {e}")
 
-    # For developer mode: extract code blocks and offer zip download
-    if mode_key == "developer":
+    # For developer mode: only generate zip when user explicitly asks for files
+    if mode_key == "developer" and user_wants_file(message):
         code_blocks = extract_code_blocks(answer)
         if code_blocks:
             zip_info = save_code_as_zip(code_blocks)
@@ -935,7 +1176,8 @@ def chat():
                     "download_name": zip_info["filename"],
                 })
 
-    update_user_memory(memory_key, "user", message)
+    # Store in memory (store original message, not file content, to keep memory clean)
+    update_user_memory(memory_key, "user", message or f"[Uploaded: {uploaded_file.filename}]")
     update_user_memory(memory_key, "assistant", answer)
     return jsonify({"ok": True, "response": answer})
 
@@ -1014,7 +1256,7 @@ def upload_code():
 
     recent_history = get_user_memory(memory_key)
     vector_mem = retrieve_relevant_memory(memory_key, instruction)
-    answer = ask_gemini(upload_prompt, vector_mem, "", mode, recent_history=recent_history)
+    answer = ask_ollama(upload_prompt, vector_mem, "", mode, recent_history=recent_history)
 
     # Extract code blocks from the response and create a zip
     code_blocks = extract_code_blocks(answer)
