@@ -1,12 +1,12 @@
 """
 ==========================================================
   ZENITH OX Ã¢â‚¬â€ Secure Intelligent Research Assistant
-  Backend: Flask + Ollama (local LLMs) + TF-IDF Vector Memory
+  Backend: Flask + Groq (fast cloud LLMs) + TF-IDF Vector Memory
   Auth:    Email+Password  OR  Google OAuth  (or both)
   Web:     Tavily API via raw `requests` (no SDK)
   Stage 2: AI Mode Selection (6 modes)
   
-  UPDATED: Gemini -> Ollama local models via OpenAI-compatible API
+  UPDATED: Gemini -> Groq cloud API via OpenAI-compatible endpoint
 ==========================================================
 """
 
@@ -50,16 +50,16 @@ MEMORY_FILE = os.path.join(BASE_DIR, "memory.json")
 WRITABLE_USERS  = "/tmp/users.json"
 WRITABLE_MEMORY = "/tmp/memory.json"
 
-OLLAMA_BASE_URL     = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+GROQ_API_KEY        = os.getenv("GROQ_API_KEY", "")
 TAVILY_API_KEY      = os.getenv("TAVILY_API_KEY", "")
 SECRET_KEY          = os.getenv("FLASK_SECRET_KEY", secrets.token_hex(32))
 
 GOOGLE_CLIENT_ID     = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
 
-ollama_client = OpenAI(
-    api_key="ollama",  # Ollama doesn't validate API keys, but the SDK requires one
-    base_url=f"{OLLAMA_BASE_URL}/v1/",
+groq_client = OpenAI(
+    api_key=GROQ_API_KEY,
+    base_url="https://api.groq.com/openai/v1",
 )
 
 # ----------------------------------------------------------
@@ -105,14 +105,14 @@ AI_MODES = {
         "name": "AI Developer",
         "emoji": "\U0001f4bb",
         "tagline": "Code generation, debugging, and explanation",
-        "model": "qwen2.5-coder:7b",
+        "model": "qwen/qwen3-32b",
         "system_prompt": (
             "You are an expert software developer and programming assistant. "
             "Write clean, well-documented code in any language requested. "
             "Debug and fix code issues with clear explanations. "
             "Explain complex programming concepts simply. "
             "Follow best practices and design patterns. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "Always provide working code examples with proper formatting. "
             "CRITICAL FILE NAMING RULES: 1. ONLY add the File: comment to ACTUAL PROJECT FILES that the user would save. 2. Do NOT add File: to bash commands, terminal instructions, or expected output. 3. For project files, ALWAYS put the filename as a comment "
             "on the FIRST line inside the code fence. Examples:\n"
@@ -135,12 +135,12 @@ AI_MODES = {
         "name": "AI Story Writer",
         "emoji": "\U0001f4d6",
         "tagline": "Creative writing, stories, poems, and scripts",
-        "model": "llama3.3:latest",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are a talented creative writer. "
             "Write engaging stories with vivid descriptions and compelling characters. "
             "Craft poetry with rhythm and imagery. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "Create scripts with authentic dialogue. "
             "Adapt your writing style to match the requested genre. "
             "Be creative, original, and evocative in your writing."
@@ -153,12 +153,12 @@ AI_MODES = {
         "name": "AI Solve It",
         "emoji": "\U0001f9ee",
         "tagline": "Math problems and step-by-step solutions",
-        "model": "qwen2.5:math",
+        "model": "qwen/qwen3-32b",
         "system_prompt": (
             "You are an expert mathematician and problem solver. "
             "Solve math problems step-by-step, showing all work clearly. "
             "Explain mathematical concepts with examples. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "Handle algebra, calculus, statistics, geometry, and more. "
             "Break complex problems into manageable numbered steps. "
             "Always verify your answers by checking the work."
@@ -171,11 +171,11 @@ AI_MODES = {
         "name": "AI Researcher",
         "emoji": "\U0001f50d",
         "tagline": "Web search + memory research assistant",
-        "model": "llama3.3:latest",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are Zenith OX, a secure, intelligent research assistant. "
             "You answer clearly, accurately, and concisely. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "Use the provided past memory and web context when relevant, "
             "but never fabricate facts. If unsure, say so."
         ),
@@ -187,12 +187,12 @@ AI_MODES = {
         "name": "AI Email Writer",
         "emoji": "\u2709\ufe0f",
         "tagline": "Generate professional emails ready to copy",
-        "model": "llama3.3:latest",
+        "model": "llama-3.3-70b-versatile",
         "system_prompt": (
             "You are an expert email writer. "
             "Write clear, professional, and well-structured emails. "
             "Adapt tone to context: formal, casual, follow-up, complaint, request, etc. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "Include appropriate Subject line, greeting, body, and sign-off. "
             "Keep emails concise yet complete. "
             "Format the output as a ready-to-copy email with Subject: and Body: clearly marked."
@@ -205,10 +205,10 @@ AI_MODES = {
         "name": "AI Slides Generator",
         "emoji": "\U0001f4ca",
         "tagline": "Generate downloadable PowerPoint presentations",
-        "model": "llama3.1:8b",
+        "model": "llama-3.1-8b-instant",
         "system_prompt": (
             "You generate PowerPoint presentation content. "
-            "You are powered by Ollama and integrated into Zenith OX."
+            "You are powered by Groq and integrated into Zenith OX."
             "When the user asks for a presentation, generate ONLY a valid JSON object with no extra text.\n"
             "Use this exact format:\n"
             '{"title": "Presentation Title", "slides": ['
@@ -779,9 +779,9 @@ def tavily_search(query, max_results=3):
 
 
 # ==========================================================
-# 7. OLLAMA CHAT (mode-aware)
+# 7. GROQ CHAT (mode-aware)
 # ==========================================================
-def ask_ollama(user_input, vector_memory, web_context, mode, recent_history=None):
+def ask_groq(user_input, vector_memory, web_context, mode, recent_history=None):
     # Build messages array with conversation history for context
     messages = [{"role": "system", "content": mode["system_prompt"]}]
 
@@ -802,7 +802,7 @@ def ask_ollama(user_input, vector_memory, web_context, mode, recent_history=None
     messages.append({"role": "user", "content": prompt})
 
     try:
-        resp = ollama_client.chat.completions.create(
+        resp = groq_client.chat.completions.create(
             model=mode["model"],
             messages=messages,
             temperature=mode["temperature"],
@@ -1138,7 +1138,7 @@ def chat():
     recent_history = get_user_memory(memory_key)
     vector_mem = retrieve_relevant_memory(memory_key, message or "file analysis")
     web_ctx    = tavily_search(message) if mode.get("uses_web_search") and message else ""
-    answer     = ask_ollama(full_message, vector_mem, web_ctx, mode, recent_history=recent_history)
+    answer     = ask_groq(full_message, vector_mem, web_ctx, mode, recent_history=recent_history)
 
     # Handle PPTX special mode â€” always generates file (that's its purpose)
     if mode.get("special_handler") == "pptx":
@@ -1256,7 +1256,7 @@ def upload_code():
 
     recent_history = get_user_memory(memory_key)
     vector_mem = retrieve_relevant_memory(memory_key, instruction)
-    answer = ask_ollama(upload_prompt, vector_mem, "", mode, recent_history=recent_history)
+    answer = ask_groq(upload_prompt, vector_mem, "", mode, recent_history=recent_history)
 
     # Extract code blocks from the response and create a zip
     code_blocks = extract_code_blocks(answer)
