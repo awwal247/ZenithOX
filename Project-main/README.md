@@ -16,7 +16,7 @@ and **real-time web search** (Tavily) to power a ChatGPT-style UI.
 | 👋 | Time-aware greeting (morning / afternoon / evening / night) — computed in Python | `datetime` |
 | 🧠 | Vector-based conversation memory  | `scikit-learn` TF-IDF + cosine similarity |
 | 🌐 | Real-time web retrieval          | Tavily API (via raw `requests`) |
-| 💬 | Intelligent chat responses        | Groq `llama3-8b-8192` (free) |
+| 💬 | Intelligent chat responses        | Groq `llama-3.3-70b-versatile` (free) |
 | 🗂 | Per-user persistent storage       | JSON files (`users.json`, `memory.json`) |
 | 🎨 | Minimal-JS UI (forms are pure HTML, validation is pure Python) | Flask Jinja + flash messages |
 
