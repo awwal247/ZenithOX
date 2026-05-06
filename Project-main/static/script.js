@@ -1,5 +1,5 @@
 /* ==========================================================
-   ZENITH OX â€” Chat UI (Markdown + Math + Copy button)
+   ZENITH OX Ã¢â‚¬â€ Chat UI (Markdown + Math + Copy button)
    ========================================================== */
 (() => {
   const chatBox   = document.getElementById("chat-box");
@@ -225,8 +225,8 @@
       if (pendingFile) {
         const fd = new FormData();
         fd.append("file", pendingFile);
-        fd.append("message", message || "Analyze this code");
-        r = await fetch("/upload-code", { method: "POST", body: fd });
+        fd.append("message", message || "Please analyze this file");
+        r = await fetch("/chat", { method: "POST", body: fd });
         pendingFile = null;
         fileInput.value = "";
         filePreview.classList.add("hidden");
