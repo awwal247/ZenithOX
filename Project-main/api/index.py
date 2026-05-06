@@ -782,7 +782,7 @@ def tavily_search(query, max_results=3):
 # ==========================================================
 # 7. GROQ CHAT (mode-aware)
 # Vision model for image analysis
-VISION_MODEL = "llama-3.2-11b-vision-preview"
+VISION_MODEL = "llama-4-scout-17b-16e-instruct"
 
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
 
