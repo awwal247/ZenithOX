@@ -1,6 +1,6 @@
 """
 ==========================================================
-  ZENITH OX Ã¢â‚¬â€ Secure Intelligent Research Assistant
+  ZENITH OX â€” Secure Intelligent Research Assistant
   Backend: Flask + Groq (fast cloud LLMs) + TF-IDF Vector Memory
   Auth:    Email+Password  OR  Google OAuth  (or both)
   Web:     Tavily API via raw `requests` (no SDK)
@@ -35,6 +35,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 # File analysis imports (universal file support)
 import csv
+import base64
 import mimetypes
 
 # ----------------------------------------------------------
@@ -780,6 +781,50 @@ def tavily_search(query, max_results=3):
 
 # ==========================================================
 # 7. GROQ CHAT (mode-aware)
+# Vision model for image analysis
+VISION_MODEL = "llama-3.2-11b-vision-preview"
+
+IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp"}
+
+
+def ask_groq_vision(user_input, image_bytes, image_ext, mode, recent_history=None):
+    """Send an image + text prompt to Groq's vision model."""
+    # Determine MIME type
+    mime_map = {
+        ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+        ".gif": "image/gif", ".bmp": "image/bmp", ".webp": "image/webp",
+    }
+    mime = mime_map.get(image_ext.lower(), "image/jpeg")
+
+    # Encode image as base64
+    b64 = base64.b64encode(image_bytes).decode("utf-8")
+    data_url = f"data:{mime};base64,{b64}"
+
+    # Build messages
+    messages = [{"role": "system", "content": mode["system_prompt"]}]
+    if recent_history:
+        for msg in recent_history[-6:]:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+
+    # Multimodal user message
+    messages.append({
+        "role": "user",
+        "content": [
+            {"type": "text", "text": user_input or "Please analyze this image."},
+            {"type": "image_url", "image_url": {"url": data_url}},
+        ],
+    })
+
+    try:
+        resp = groq_client.chat.completions.create(
+            model=VISION_MODEL,
+            messages=messages,
+            temperature=mode["temperature"],
+            max_tokens=mode["max_tokens"],
+        )
+        return resp.choices[0].message.content.strip()
+    except Exception as e:
+        return f"[Zenith OX error] {e}"
 # ==========================================================
 def ask_groq(user_input, vector_memory, web_context, mode, recent_history=None):
     # Build messages array with conversation history for context
@@ -1114,33 +1159,57 @@ def chat():
     if not message and not uploaded_file:
         return jsonify({"ok": False, "error": "Empty message."}), 400
 
-    # â”€â”€ Handle file upload (any file type) â”€â”€
+    # ── Handle file upload (any file type) ──
+    is_image_upload = False
+    image_bytes = None
+    image_ext = None
+
     if uploaded_file and uploaded_file.filename:
-        content, error = extract_file_content(uploaded_file)
-        if error:
-            return jsonify({"ok": False, "error": error}), 400
-        if content:
-            file_context = (
-                f"\n\n--- Uploaded File: {uploaded_file.filename} ---\n"
-                f"{content}\n--- End of File ---\n"
-            )
+        ext = os.path.splitext(uploaded_file.filename)[1].lower()
 
-    # Combine message with file context
-    full_message = message
-    if file_context:
-        full_message = f"{message}\n{file_context}" if message else f"Please analyze this file:{file_context}"
-
-    if not full_message.strip():
-        return jsonify({"ok": False, "error": "Empty message."}), 400
+        # Check if it's an image → use vision model
+        if ext in IMAGE_EXTENSIONS:
+            is_image_upload = True
+            image_bytes = uploaded_file.read()
+            image_ext = ext
+            if len(image_bytes) > MAX_UPLOAD_SIZE:
+                return jsonify({"ok": False, "error": "File too large (max 10 MB)"}), 400
+        else:
+            # Non-image file: extract text content
+            content, error = extract_file_content(uploaded_file)
+            if error:
+                return jsonify({"ok": False, "error": error}), 400
+            if content:
+                file_context = (
+                    f"\n\n--- Uploaded File: {uploaded_file.filename} ---\n"
+                    f"{content}\n--- End of File ---\n"
+                )
 
     memory_key = f"{user_id}:{mode_key}"
-
     recent_history = get_user_memory(memory_key)
-    vector_mem = retrieve_relevant_memory(memory_key, message or "file analysis")
-    web_ctx    = tavily_search(message) if mode.get("uses_web_search") and message else ""
-    answer     = ask_groq(full_message, vector_mem, web_ctx, mode, recent_history=recent_history)
 
-    # Handle PPTX special mode â€” always generates file (that's its purpose)
+    # ── Route to vision model for images, text model for everything else ──
+    if is_image_upload:
+        answer = ask_groq_vision(
+            message or "Please analyze this image.",
+            image_bytes, image_ext, mode,
+            recent_history=recent_history,
+        )
+        full_message = message or f"[Uploaded image: {uploaded_file.filename}]"
+    else:
+        # Combine message with file context
+        full_message = message
+        if file_context:
+            full_message = f"{message}\n{file_context}" if message else f"Please analyze this file:{file_context}"
+
+        if not full_message.strip():
+            return jsonify({"ok": False, "error": "Empty message."}), 400
+
+        vector_mem = retrieve_relevant_memory(memory_key, message or "file analysis")
+        web_ctx    = tavily_search(message) if mode.get("uses_web_search") and message else ""
+        answer     = ask_groq(full_message, vector_mem, web_ctx, mode, recent_history=recent_history)
+
+    # Handle PPTX special mode — always generates file (that's its purpose)
     if mode.get("special_handler") == "pptx":
         try:
             result = generate_pptx(answer, user_id)
